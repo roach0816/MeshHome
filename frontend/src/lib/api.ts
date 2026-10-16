@@ -594,6 +594,8 @@ export interface BotAppSetting {
   options?: BotAppOption[] | null;
   depends_on?: string | null;
   options_by?: Record<string, BotAppOption[]> | null;
+  /** select: chosen while nothing is saved. */
+  default?: string | null;
 }
 
 export interface BotAppInfo {

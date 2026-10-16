@@ -7065,6 +7065,17 @@
               }
             ],
             "title": "Options By"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
           }
         },
         "type": "object",

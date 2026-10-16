@@ -276,7 +276,12 @@ function SettingsForm({
   pending: boolean;
   error: unknown;
 }) {
-  const [values, setValues] = useState<Record<string, string>>(initial);
+  // Selects with a default start on it (it's what the app uses while nothing is saved).
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const out = { ...initial };
+    for (const s of app.settings) if (s.type === "select" && s.default && !out[s.key]) out[s.key] = s.default;
+    return out;
+  });
   const [command, setCommand] = useState(app.commands[0]?.name ?? "");
   const [group, setGroup] = useState("");
   const groupKey = app.commands.find((c) => c.name === command)?.group;

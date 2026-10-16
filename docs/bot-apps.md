@@ -50,9 +50,13 @@ FORMAT.md has full examples.
   up to 30 parents). An app has at most 1000 options. A value matches
   `^[A-Za-z0-9][A-Za-z0-9._/-]{0,59}$` and goes into URLs as written (e.g. `football/nfl`), since
   the recipe fixed every possible value. When a parent changes, the dependent select clears.
+  A select with `options` can have a **`"default"`** (one of them): the dropdown starts on it, and
+  it's used while nothing is saved, so an update that adds such a select keeps the app running
+  without the owner opening its settings.
 - **`item`** is reserved as a setting key.
 - Settings can't contain control characters or line breaks (except groups), because header values
   are now used as written.
+- **Lengths:** up to 253 characters, except secrets (2000, for tokens such as JWTs) and groups (4000).
 
 ### Sources
 
@@ -66,6 +70,11 @@ FORMAT.md has full examples.
   `"cache_seconds": 0` isn't kept in the cache.
 - **`{item}`**: in a source read by group commands (and only those), each ID of the chosen group,
   URL-encoded.
+- **`{scheme}://`**: a local source (or login) can take its scheme from a select whose options are
+  only `http` and `https`, e.g. `"{scheme}://{host}/api/states/{item}"`, for devices that answer on
+  either depending on how they're set up. The host must still be a host setting, with the same
+  local-address check. Internet sources always write their scheme. Combine it with
+  `"verify_tls": false` for devices with self-signed certificates; that only affects https.
 - **`"login": "<name>"`** and **`{login.token}`**: see Logins.
 
 ### Logins
@@ -83,7 +92,8 @@ FORMAT.md has full examples.
 ```
 
 - At most one login. It's a POST with a JSON body: a flat object of templates over settings.
-- Only local sources can use it, and its URL must use the **same host setting** as each of them.
+- Only local sources can use it, and its URL must use the **same scheme and host setting** as each
+  of them.
   It gets the same local-address check, no redirects, and a 64 KB response limit. `timeout` and
   `verify_tls` work as for sources.
 - The token is read with the path language at `token_from`. It's reused until

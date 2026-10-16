@@ -61,7 +61,11 @@ _REF = re.compile(r"\{([a-z][a-z0-9_]*)(?:\.(unit|label))?\}")
 _PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*)\}")
 _PLACEHOLDER_V3 = re.compile(r"\{(login\.token|[a-z][a-z0-9_]*)\}")
 _TOKEN = "{login.token}"
-_LOCAL_URL = re.compile(r"^https?://\{([a-z][a-z0-9_]*)\}(?:[/?]|$)")
+# A local URL: a literal scheme or a scheme select ({scheme}://), then a host setting.
+_LOCAL_URL = re.compile(r"^(https?|\{[a-z][a-z0-9_]*\})://\{([a-z][a-z0-9_]*)\}(?:[/?]|$)")
+_SCHEME_SELECT = re.compile(r"^\{([a-z][a-z0-9_]*)\}://")
+SCHEMES = {"http", "https"}
+MAX_SETTING_CHARS, MAX_SECRET_CHARS = 253, 2000
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _GROUP_NAME = re.compile(r"^[a-z0-9]{1,20}$")
 _GROUP_ITEM = re.compile(r"^[A-Za-z0-9_.:\-]{1,100}$")
@@ -101,7 +105,8 @@ class Setting(BaseModel):
     label: str = Field(min_length=1, max_length=60)
     # host: an IP address or hostname, optionally :port. secret: never shown again once saved.
     # groups (format 3): "name: id, id" lines, read by a command's `group`.
-    # select (format 3): one of `options`, or of `options_by[<the depends_on setting's value>]`.
+    # select (format 3): one of `options`, or of `options_by[<the depends_on setting's value>]`;
+    # `default` (one of `options`) is used while nothing is stored.
     type: Literal["host", "text", "secret", "groups", "select"] = "text"
     required: bool = True
     placeholder: str = Field(default="", max_length=80)
@@ -109,6 +114,7 @@ class Setting(BaseModel):
     options: OptionList | None = None
     depends_on: str | None = None
     options_by: Annotated[dict[str, OptionList], Field(max_length=30)] | None = None
+    default: str | None = None
 
     @model_validator(mode="after")
     def _select(self) -> Setting:
@@ -117,9 +123,11 @@ class Setting(BaseModel):
             self.depends_on is not None or self.options_by is not None,
         )
         if self.type != "select":
-            if listed or dependent:
-                raise ValueError(f"Setting {self.key}: only a select has options")
+            if listed or dependent or self.default is not None:
+                raise ValueError(f"Setting {self.key}: only a select has options or a default")
             return self
+        if self.default is not None and self.default not in {o.value for o in self.options or []}:
+            raise ValueError(f"Setting {self.key}: the default must be one of its options")
         if listed == dependent or (dependent and (self.depends_on is None or self.options_by is None)):
             raise ValueError(
                 f"Setting {self.key}: a select has either options, or depends_on with options_by"
@@ -179,8 +187,11 @@ class Source(BaseModel):
         else:
             if wrong := given & _PUSH_FIELDS:
                 raise ValueError(f"Only a push source can set {', '.join(sorted(wrong))}")
-            if not re.match(r"^https?://", self.url):
-                raise ValueError("A source URL starts with http:// or https://")
+            if _SCHEME_SELECT.match(self.url):
+                if self.network != "local":
+                    raise ValueError("Only a local source can take its scheme from a setting")
+            elif not re.match(r"^https?://", self.url):
+                raise ValueError("A source URL starts with http://, https:// or {setting}://")
             if self.network != "local" and not self.verify_tls:
                 raise ValueError("Only a local source can turn off verify_tls")
             if self.network != "local" and self.login:
@@ -406,11 +417,24 @@ class Recipe(BaseModel):
             if grouped := sorted(k for k in used if settings[k].type == "groups"):
                 raise ValueError(f"{what} can't use {grouped[0]}: a command's group reads it")
 
-        def local_host(what: str, url: str) -> str:
+        def local_host(what: str, url: str) -> tuple[str, str]:
+            """(scheme, host key): the scheme as written ("https", "{scheme}"), the host setting."""
             m = _LOCAL_URL.match(url)
-            if not m or m.group(1) not in settings or settings[m.group(1)].type != "host":
+            if not m or m.group(2) not in settings or settings[m.group(2)].type != "host":
                 raise ValueError(f"{what}: a local source's host must be a host setting")
-            return m.group(1)
+            scheme = m.group(1)
+            if scheme.startswith("{"):
+                st = settings.get(scheme[1:-1])
+                if (
+                    st is None
+                    or st.type != "select"
+                    or st.options is None
+                    or not {o.value for o in st.options} <= SCHEMES
+                ):
+                    raise ValueError(
+                        f"{what}: {scheme}:// must be a select whose options are only http and https"
+                    )
+            return scheme, m.group(2)
 
         for name, src in self.sources.items():
             if src.network == "push":
@@ -426,13 +450,16 @@ class Recipe(BaseModel):
             )
             host = urlsplit(src.url).hostname or ""
             if src.network == "local":
-                key = local_host(f"Source {name}", src.url)
+                where = local_host(f"Source {name}", src.url)
                 if src.login:
                     login = self.logins.get(src.login)
                     if login is None:
                         raise ValueError(f"Source {name} uses an unknown login {src.login}")
-                    if _LOCAL_URL.match(login.url) is None or _LOCAL_URL.match(login.url).group(1) != key:
-                        raise ValueError(f"Login {src.login} must use the same host setting as source {name}")
+                    m = _LOCAL_URL.match(login.url)
+                    if m is None or (m.group(1), m.group(2)) != where:
+                        raise ValueError(
+                            f"Login {src.login} must use the same scheme and host setting as source {name}"
+                        )
             elif host not in self.hosts:
                 raise ValueError(f"Source {name} contacts {host or 'an unknown host'}, which isn't in hosts")
         for name, login in self.logins.items():
@@ -540,12 +567,23 @@ def _options(s: Setting, chosen: dict[str, str]) -> list[str]:
     return [o.value for o in (s.options_by or {}).get(chosen.get(s.depends_on or "", ""), [])]
 
 
+def with_defaults(recipe: Recipe, settings: dict[str, str]) -> dict[str, str]:
+    """Settings with each select that has nothing stored set to its default: an update that adds
+    a select with a default keeps the app running without the owner opening its settings."""
+    out = dict(settings)
+    for s in recipe.settings:
+        if s.type == "select" and s.default is not None and not str(out.get(s.key) or "").strip():
+            out[s.key] = s.default
+    return out
+
+
 def check_settings(recipe: Recipe, values: dict[str, str], *, stale_ok: bool = False) -> dict[str, str]:
     """The settings to store: known keys only, trimmed and validated. ValueError with a reason.
 
     stale_ok: a select whose value is no longer one of its options is left unset instead of
     refused (an update changed its options; the app then needs settings, see `problem`)."""
     out: dict[str, str] = {}
+    values = with_defaults(recipe, values)
     for s in recipe.settings:
         v = str(values.get(s.key) or "").strip()
         if s.type == "select":
@@ -558,7 +596,8 @@ def check_settings(recipe: Recipe, values: dict[str, str], *, stale_ok: bool = F
             if s.required:
                 raise ValueError(f"{s.label} is required")
             continue
-        if len(v) > (GROUPS_MAX_CHARS if s.type == "groups" else 253):
+        limit = {"groups": GROUPS_MAX_CHARS, "secret": MAX_SECRET_CHARS}.get(s.type, MAX_SETTING_CHARS)
+        if len(v) > limit:
             raise ValueError(f"{s.label} is too long")
         if s.type == "groups":
             try:
@@ -776,6 +815,7 @@ async def fetch(
                 raise SourceError("Nothing has been received from the device yet")
             raise SourceError(f"Nothing received from the device in the last {src.max_age} seconds")
         return data
+    settings = with_defaults(recipe, settings)
     _check_selects(recipe, settings)
     url = _fill(src.url, settings, recipe, to="url", item=item)  # without the session token
     host = urlsplit(url).hostname or ""

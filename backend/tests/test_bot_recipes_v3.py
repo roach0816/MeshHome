@@ -899,9 +899,12 @@ async def test_login_reply_without_a_session(monkeypatch):
                 r["settings"].append({"key": "other", "label": "Other", "type": "host"}),
                 r["logins"]["pihole"].update(url="http://{other}/api/auth"),
             ),
-            "same host setting",
+            "same scheme and host setting",
         ),
-        (lambda r: r["logins"]["pihole"].update(url="http://evil.example/api/auth"), "same host setting"),
+        (
+            lambda r: r["logins"]["pihole"].update(url="http://evil.example/api/auth"),
+            "same scheme and host setting",
+        ),
         (
             lambda r: (
                 r.update(hosts=["pi.example"]),
@@ -924,3 +927,148 @@ def test_invalid_login_recipes_are_refused(change, reason):
     change(raw)
     with pytest.raises(bot_recipes.RecipeError, match=reason):
         bot_recipes.load(raw)
+
+
+# ---- choosing http or https, select defaults, longer secrets -----------------------------------
+
+SCHEME = {
+    "key": "scheme",
+    "label": "Connection",
+    "type": "select",
+    "default": "http",
+    "options": [
+        {"value": "http", "label": "http:// (Home Assistant's default)"},
+        {"value": "https", "label": "https:// (SSL turned on)"},
+    ],
+}
+
+
+def _ha_with_scheme(**changes) -> dict:
+    raw = copy.deepcopy(HA)
+    raw["version"] = "1.1.0"
+    raw["settings"].insert(0, copy.deepcopy(SCHEME))
+    raw["sources"]["state"].update(url="{scheme}://{host}/api/states/{item}", verify_tls=False)
+    raw.update(changes)
+    return raw
+
+
+async def test_scheme_select_chooses_http_or_https(monkeypatch):
+    recipe = bot_recipes.load(_ha_with_scheme())
+    seen, clients = _home_assistant(monkeypatch)
+    for scheme in ("http", "https"):
+        bot_recipes._cache.clear()
+        reply = await bot_recipes.run(recipe, "ha", {**HA_SETTINGS, "scheme": scheme}, "garage")
+        assert reply == "Left garage: closed · Right garage: open"
+        assert {r.url.scheme for r in seen[-2:]} == {scheme}
+        assert str(seen[-1].url).startswith(f"{scheme}://ha.test:8123/api/states/")
+    assert clients[-1]["verify"] is False
+    assert recipe.contacts() == [
+        "contacts a device on your local network (accepts its self-signed certificate)"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (
+            lambda r: r["settings"][0]["options"].append({"value": "ftp", "label": "FTP"}),
+            "only http and https",
+        ),
+        (lambda r: r["settings"][0].update(type="text", options=None, default=None), "only http and https"),
+        (lambda r: r["sources"]["state"].update(url="{nope}://{host}/x"), "unknown settings: nope"),
+        (
+            lambda r: (
+                r["settings"].insert(0, {**SCHEME, "key": "kind", "default": None}),
+                r["settings"][1].update(
+                    depends_on="kind",
+                    options=None,
+                    default=None,
+                    options_by={
+                        "http": [{"value": "http", "label": "x"}],
+                        "https": [{"value": "https", "label": "x"}],
+                    },
+                ),
+            ),
+            "only http and https",
+        ),
+        (
+            lambda r: (
+                r.update(hosts=["ha.example"]),
+                r["sources"]["state"].update(
+                    url="{scheme}://ha.example/x", network="internet", verify_tls=True
+                ),
+            ),
+            "Only a local source can take its scheme",
+        ),
+        (lambda r: r["sources"]["state"].update(url="{scheme}://{token}/x"), "host must be a host setting"),
+        (lambda r: r["sources"]["state"].update(url="ftp://{host}/x"), "starts with http://, https://"),
+    ],
+)
+def test_invalid_scheme_recipes_are_refused(change, reason):
+    raw = _ha_with_scheme()
+    change(raw)
+    with pytest.raises(bot_recipes.RecipeError, match=reason):
+        bot_recipes.load(raw)
+
+
+def test_login_uses_the_sources_scheme():
+    raw = copy.deepcopy(PIHOLE)
+    raw["settings"].insert(0, copy.deepcopy(SCHEME))
+    raw["sources"]["summary"]["url"] = "{scheme}://{host}/api/stats/summary"
+    with pytest.raises(bot_recipes.RecipeError, match="same scheme and host setting"):
+        bot_recipes.load(raw)  # the login still says http://
+    raw["logins"]["pihole"]["url"] = "{scheme}://{host}/api/auth"
+    assert bot_recipes.load(raw)
+
+
+async def test_select_default_keeps_an_updated_app_running(monkeypatch):
+    stored = bot_recipes.check_settings(bot_recipes.load(HA), HA_SETTINGS)  # installed at 1.0.0
+    assert "scheme" not in stored
+    newer = bot_recipes.load(_ha_with_scheme())
+    assert bot_recipes.problem(newer, stored) is None
+    seen, _ = _home_assistant(monkeypatch)
+    assert await bot_recipes.run(newer, "ha", stored, "garage") == "Left garage: closed · Right garage: open"
+    assert {r.url.scheme for r in seen} == {"http"}
+    # Saving (or updating) stores it.
+    assert bot_recipes.check_settings(newer, stored)["scheme"] == "http"
+    assert bot_apps._merge_settings(newer, stored, stored, stale_ok=True)["scheme"] == "http"
+    assert bot_recipes.check_settings(newer, {**stored, "scheme": "https"})["scheme"] == "https"
+    # Without a default, a missing select still needs choosing.
+    raw = _ha_with_scheme()
+    raw["settings"][0].pop("default")
+    assert bot_recipes.problem(bot_recipes.load(raw), stored) == "Connection: choose one"
+
+
+@pytest.mark.parametrize(
+    ("setting", "reason"),
+    [
+        ({**SCHEME, "default": "ftp"}, "must be one of its options"),
+        ({"key": "x", "label": "X", "default": "a"}, "only a select has options or a default"),
+        (
+            {
+                "key": "team",
+                "label": "Team",
+                "type": "select",
+                "depends_on": "league",
+                "default": "kc",
+                "options_by": {"football/nfl": [{"value": "kc", "label": "KC"}]},
+            },
+            "must be one of its options",
+        ),
+    ],
+)
+def test_invalid_select_defaults_are_refused(setting, reason):
+    with pytest.raises(ValueError, match=reason):
+        bot_recipes.Setting.model_validate(setting)
+
+
+def test_secrets_can_be_long_tokens():
+    recipe = bot_recipes.load(HA)
+    jwt = "eyJ" + "a" * 437  # an Enphase owner token is about 440 characters
+    assert bot_recipes.check_settings(recipe, {**HA_SETTINGS, "token": jwt})["token"] == jwt
+    with pytest.raises(ValueError, match="Access token is too long"):
+        bot_recipes.check_settings(recipe, {**HA_SETTINGS, "token": "a" * 2001})
+    with pytest.raises(ValueError, match="Address is too long"):
+        bot_recipes.check_settings(recipe, {**HA_SETTINGS, "host": "a" * 254})
+    with pytest.raises(ValueError, match="control characters"):
+        bot_recipes.check_settings(recipe, {**HA_SETTINGS, "token": jwt + "\r\nX: y"})

@@ -37,6 +37,8 @@ class SettingOut(BaseModel):
     options: list[OptionOut] | None = None
     depends_on: str | None = None
     options_by: dict[str, list[OptionOut]] | None = None
+    # select: chosen while nothing is saved.
+    default: str | None = None
 
 
 class CommandOut(BaseModel):
