@@ -1,0 +1,12 @@
+# lego release that MeshHome installs to get and renew HTTPS certificates (DNS-01) on
+# native installs. lego (https://github.com/go-acme/lego, MIT licence) supports the DNS providers
+# listed in dns-providers.json.
+#
+# Update all values together, after testing, and take the checksums from the release's
+# lego_<version>_checksums.txt.
+LEGO_VERSION=5.5.2
+LEGO_BASE_URL=https://github.com/go-acme/lego/releases/download/v5.5.2
+LEGO_ARM64_ASSET=lego_v5.5.2_linux_arm64.tar.gz
+LEGO_ARM64_SHA256=15b14ec2ab14fde69cc8396eb0204c5ce4327e31a486953225a6059b26db3e8c
+LEGO_AMD64_ASSET=lego_v5.5.2_linux_amd64.tar.gz
+LEGO_AMD64_SHA256=2a35505089e7772c92e1e9ac144df91151ef2eca8568630db0ff91fca06d9bef

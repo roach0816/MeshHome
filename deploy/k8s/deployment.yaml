@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meshhome
+  labels: { app.kubernetes.io/name: meshhome, app.kubernetes.io/part-of: meshhome }
+spec:
+  # One pod owns the radio connection. Recreate so two never overlap during a rollout.
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: meshhome }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: meshhome, app.kubernetes.io/part-of: meshhome }
+    spec:
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          # Pinned to a commit SHA by CI on every build of main. Never use :latest here.
+          image: ghcr.io/roach0816/meshhome:b58252761b1ed62515028b0461b47831c851858a
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: meshhome-db, key: POSTGRES_PASSWORD } }
+            # $(POSTGRES_PASSWORD) is expanded by Kubernetes; use a URL-safe password.
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://meshhome:$(POSTGRES_PASSWORD)@meshhome-db:5432/meshhome
+            - { name: RADIO_ENABLED, value: "true" }
+            - { name: COOKIE_SECURE, value: "auto" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          startupProbe:
+            # Allows time for the database to come up and migrations to run.
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            # Liveness never depends on the radio or the database.
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}

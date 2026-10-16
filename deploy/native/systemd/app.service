@@ -1,0 +1,43 @@
+[Unit]
+Description=MeshHome (web inbox for a MeshCore radio)
+Documentation=https://github.com/roach0816/MeshHome
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=@APP_USER@
+Group=@APP_USER@
+EnvironmentFile=@ENV_FILE@
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WorkingDirectory=@PREFIX@/current
+# As root ("+"): install any helper units shipped with this release (so upgrades from older
+# versions gain them) and refresh the non-secret network snapshot. Never fails the start.
+ExecStartPre=+@PREFIX@/current/deploy/native/install.sh --sync-units
+# Apply database migrations (serialised by an advisory lock) before starting.
+ExecStartPre=@PREFIX@/current/venv/bin/python -m alembic upgrade head
+# One worker: exactly one process may own the radio connection.
+ExecStart=@PREFIX@/current/venv/bin/python -m uvicorn app.main:app --host ${HOST} --port ${PORT} --workers 1 --proxy-headers --no-server-header
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+
+# Hardening: the app only needs to write its state directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=@STATE_DIR@
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

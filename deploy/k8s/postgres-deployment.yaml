@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meshhome-db
+  labels: { app.kubernetes.io/name: meshhome-db, app.kubernetes.io/part-of: meshhome }
+spec:
+  # Exactly one PostgreSQL writer. Never RollingUpdate a database on a shared volume.
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: meshhome-db }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: meshhome-db, app.kubernetes.io/part-of: meshhome }
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        # The official image's postgres user. The NFS directory must be owned by 999:999
+        # (see docs/install-kubernetes.md); a root init container cannot chown through NFS root-squash.
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
+      containers:
+        - name: postgres
+          # postgres:18.6, multi-arch index digest (verified to include linux/arm64).
+          image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: POSTGRES_USER, value: meshhome }
+            - { name: POSTGRES_DB, value: meshhome }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: meshhome-db, key: POSTGRES_PASSWORD } }
+            # PostgreSQL 18 image layout: mount /var/lib/postgresql, data in a versioned subdir.
+            - { name: PGDATA, value: /var/lib/postgresql/18/docker }
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "meshhome", "-d", "meshhome", "-h", "127.0.0.1"] }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "meshhome", "-d", "meshhome", "-h", "127.0.0.1"] }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql }
+            - { name: run, mountPath: /var/run/postgresql }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: meshhome-db-data }
+        - name: run
+          emptyDir: {}

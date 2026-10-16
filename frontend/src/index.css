@@ -1,0 +1,267 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg: #f6f6f7;
+  --surface: #ffffff;
+  --surface-2: #f0f1f3;
+  --border: #e3e4e8;
+  --text: #16181d;
+  --muted: #5f6470;
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --accent-soft: #ccfbf1;
+  --accent-fg: #ffffff;
+  --bubble-in: #ffffff;
+  --bubble-out: #0f766e;
+  --bubble-out-fg: #ffffff;
+  --danger: #b42318;
+  --warn: #9a6700;
+  --ok: #067647;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #161920;
+  --surface-2: #1d212a;
+  --border: #2a2f3a;
+  --text: #e8eaee;
+  --muted: #9aa1ad;
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: #123a37;
+  --accent-fg: #06201d;
+  --bubble-in: #1d212a;
+  --bubble-out: #155e57;
+  --bubble-out-fg: #f0fdfa;
+  --danger: #f97066;
+  --warn: #f5c451;
+  --ok: #47cd89;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-out-fg: var(--bubble-out-fg);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --color-ok: var(--ok);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Use the dynamic viewport so the composer stays above mobile keyboards. */
+.app-height {
+  height: 100dvh;
+}
+
+.safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- map ---------------------------------------------------------------------------- */
+.leaflet-container {
+  font: inherit;
+  background: var(--surface-2);
+}
+/* Dark mode: tone down light raster tiles instead of needing a second tile source. */
+[data-theme="dark"] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
+}
+.leaflet-container .leaflet-popup-content-wrapper,
+.leaflet-container .leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+.leaflet-container .leaflet-popup-content {
+  margin: 12px 14px;
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--muted);
+}
+.leaflet-container .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--surface) 85%, transparent) !important;
+  color: var(--muted);
+}
+.leaflet-container .leaflet-control-attribution a {
+  color: var(--accent);
+}
+.leaflet-container .leaflet-bar a {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.leaflet-container .leaflet-bar a:hover {
+  background: var(--surface-2);
+}
+.mc-marker {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: var(--c);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+.mc-marker.is-stale {
+  opacity: 0.55;
+}
+.mc-marker.is-gateway {
+  border-radius: 8px;
+  outline: 3px solid color-mix(in srgb, var(--c) 35%, transparent);
+}
+
+/* ---- motion ------------------------------------------------------------------------- */
+/* Short, decelerating animations. The prefers-reduced-motion rule above turns them all off. */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@keyframes mc-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes mc-slide-from-right {
+  from {
+    opacity: 0.4;
+    transform: translateX(28px);
+  }
+}
+@keyframes mc-slide-from-left {
+  from {
+    opacity: 0.4;
+    transform: translateX(-28px);
+  }
+}
+@keyframes mc-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mc-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes mc-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+@keyframes mc-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes mc-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* Main pane content on route change (desktop: fade up; phone: slide in like a drill-down). */
+.mc-page-enter {
+  animation: mc-page-in 220ms var(--ease-out);
+}
+@media (max-width: 767px) {
+  .mc-page-enter {
+    animation: mc-slide-from-right 240ms var(--ease-out);
+  }
+  /* Sidebar returning on phones (back navigation). On desktop it never leaves. */
+  .mc-back-enter {
+    animation: mc-slide-from-left 240ms var(--ease-out);
+  }
+}
+
+/* Modals (native <dialog>). */
+dialog.mc-dialog[open] {
+  animation: mc-pop-in 200ms var(--ease-out);
+}
+dialog.mc-dialog[open]::backdrop {
+  animation: mc-fade-in 200ms var(--ease-out);
+}
+/* Exit "ghost": a static copy of a closing dialog, animated out after the real one unmounts. */
+.mc-dialog-ghost {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgb(0 0 0 / 0.4);
+  animation: mc-fade-out 160ms var(--ease-in) forwards;
+}
+.mc-dialog-ghost > dialog {
+  position: static;
+  animation: mc-pop-out 160ms var(--ease-in) forwards;
+}
+
+/* Context menus. */
+.mc-menu {
+  animation: mc-menu-in 120ms var(--ease-out);
+}
+
+/* Popovers that open upwards from a button (emoji picker). */
+.mc-pop {
+  transform-origin: bottom left;
+  animation: mc-pop-in 140ms var(--ease-out);
+}
+
+/* Draw emoji with the operating system's colour emoji font. */
+.emoji-glyph {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Segoe UI Symbol", sans-serif;
+}

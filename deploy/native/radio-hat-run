@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Starts ZephCore for the MeshHome radio HAT (run by the meshhome-radio service).
+#
+# Finds the gpiochip that drives the Pi's 40-pin header at every start rather than storing it:
+# Raspberry Pi 5 kernels moved it from gpiochip4 to gpiochip0, and the radio's control pins
+# (RAK6421 IO slot 1) are on that chip. The radio's identity, contacts and channels are kept in
+# the service's data directory, independent of the hostname.
+set -euo pipefail
+if [[ -d /opt/meshhome-radio ]]; then DIR=/opt/meshhome-radio DATA=/var/lib/meshhome-radio
+else DIR=/opt/meshcore-home-radio DATA=/var/lib/meshcore-home-radio; fi  # before the rename
+SPIDEV=/dev/spidev0.0
+
+chip=${MESHHOME_HAT_GPIOCHIP:-${MESHCORE_HOME_HAT_GPIOCHIP:-}}
+if [[ -z $chip ]]; then
+  chip=$(python3 - <<'PY' 2>/dev/null || true
+import fcntl, glob
+def num(p):
+    tail = p.rsplit("gpiochip", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+for path in sorted(glob.glob("/dev/gpiochip*"), key=num):
+    buf = bytearray(68)  # struct gpiochip_info { char name[32]; char label[32]; __u32 lines; }
+    try:
+        with open(path, "rb") as f:
+            fcntl.ioctl(f, 0x8044B401, buf)  # GPIO_GET_CHIPINFO_IOCTL
+    except OSError:
+        continue
+    label = bytes(buf[32:64]).split(b"\0")[0].decode(errors="replace")
+    if label in ("pinctrl-rp1", "pinctrl-bcm2711", "pinctrl-bcm2835"):
+        print(path)
+        break
+PY
+)
+fi
+chip=${chip:-/dev/gpiochip0}
+echo "MeshHome radio HAT: SPI $SPIDEV, GPIO $chip, data $DATA"
+exec "$DIR/zephcore" -no-color -flash="$DATA/node.bin" -lora-spidev="$SPIDEV" -lora-gpio-chip="$chip"

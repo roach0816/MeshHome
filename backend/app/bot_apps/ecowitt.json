@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "ecowitt",
+  "name": "Ecowitt weather station",
+  "version": "1.0.1",
+  "category": "Weather",
+  "summary": "Local weather from your Ecowitt gateway or Wi-Fi console: temperature, humidity, wind, rain and air quality.",
+  "description": "Reads the gateway's local live data (http://<gateway>/get_livedata_info) on your network. No Ecowitt account or cloud connection is used. Works with gateways and consoles such as the GW1100, GW2000 and GW3000, and their sensors (WS90, WH41/WH43 PM2.5, WH45/WH46 air quality). Readings use the units set on the gateway.",
+  "author": "MeshHome",
+  "homepage": "https://github.com/roach0816/MeshHome-apps/tree/main/apps/ecowitt",
+  "settings": [
+    {
+      "key": "host",
+      "label": "Gateway address",
+      "type": "host",
+      "required": true,
+      "placeholder": "192.168.1.50",
+      "help": "The IP address or hostname of your Ecowitt gateway or Wi-Fi console on your network (optionally :port)."
+    }
+  ],
+  "sources": {
+    "live": {
+      "url": "http://{host}/get_livedata_info",
+      "network": "local",
+      "timeout": 6,
+      "cache_seconds": 60
+    }
+  },
+  "commands": [
+    {
+      "name": "weather",
+      "help": "local weather",
+      "source": "live",
+      "values": {
+        "temp": {
+          "from": ["common_list[id=0x02].val"],
+          "unit_from": ["common_list[id=0x02].unit"],
+          "unit_map": {"F": "°F", "C": "°C"}
+        },
+        "humidity": {"from": ["common_list[id=0x07].val"]},
+        "wind": {"from": ["common_list[id=0x0B].val"]},
+        "gust": {"from": ["common_list[id=0x0C].val"]},
+        "wind_dir": {"from": ["common_list[id=0x0A].val"], "format": "compass"},
+        "rain": {
+          "from": [
+            {"path": "piezoRain[id=0x7C].val", "label": "24h"},
+            {"path": "piezoRain[id=0x10].val", "label": "today"},
+            {"path": "rain[id=0x7C].val", "label": "24h"},
+            {"path": "rain[id=0x10].val", "label": "today"}
+          ]
+        },
+        "aqi": {"from": ["ch_pm25[0].PM25_RealAQI", "co2[0].PM25_RealAQI"]},
+        "pm25": {"from": ["ch_pm25[0].PM25", "co2[0].PM25"]},
+        "pm10": {"from": ["co2[0].PM10"]},
+        "co2": {"from": ["co2[0].CO2"]}
+      },
+      "reply": {
+        "parts": [
+          {"items": ["{temp}{temp.unit}", "{humidity}% RH"]},
+          {"items": ["wind {wind} {wind.unit}[ {wind_dir}][, gust {gust}]"]},
+          {"items": ["rain {rain.label} {rain} {rain.unit}"]},
+          {"items": ["AQI {aqi}", "PM2.5 {pm25}", "PM10 {pm10}", "CO2 {co2}ppm"], "drop": "end"}
+        ],
+        "join": " · ",
+        "item_join": " ",
+        "max_bytes": 150,
+        "empty": "The weather station reported no outdoor readings.",
+        "unavailable": "The weather station is not answering right now."
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[Unit]
+Description=MeshHome radio HAT (ZephCore: MeshCore on the RAK6421 LoRa HAT)
+Documentation=https://github.com/liquidraver/ZephCore
+After=local-fs.target systemd-udevd.service
+# The SPI bus only appears after "dtparam=spi=on" and a restart of the Pi.
+ConditionPathExists=/dev/spidev0.0
+
+[Service]
+Type=simple
+User=@HAT_USER@
+Group=@HAT_USER@
+SupplementaryGroups=spi gpio
+WorkingDirectory=@HAT_DATA@
+ExecStart=@HAT_DIR@/run
+Restart=always
+RestartSec=3
+# The companion port (5000) has no password, so only this Pi may connect to it.
+# ZephCore needs no other network access.
+IPAddressDeny=any
+IPAddressAllow=localhost
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=@HAT_DATA@
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Serialise main-branch publish/pin runs; never cancel a build that may pin a deploy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: meshcore
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: meshcore_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U meshcore" --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://meshcore:ci-only-password@localhost:5432/meshcore_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests migrations
+      - run: ruff format --check app tests migrations
+      - run: pytest -q
+
+  api-contract:
+    # Scripts and services that use API keys depend on the API as it was released: no breaking
+    # changes. (pytest checks that backend/openapi.json matches the code.)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install oasdiff (pinned, checksum verified)
+        run: |
+          curl -fsSLo oasdiff.tgz \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.33.0/oasdiff_1.33.0_linux_amd64.tar.gz
+          echo "43a4e328e2d13ba1552d760aa68d2485c75c5621f309f6ff64ae895188345247  oasdiff.tgz" | sha256sum -c -
+          tar xzf oasdiff.tgz oasdiff
+      - name: No breaking API changes since the last release
+        run: |
+          set -euo pipefail
+          # The release before this commit (HEAD~1, so a release commit is checked too).
+          base=$(git describe --tags --abbrev=0 --match 'v*' HEAD~1 2>/dev/null || true)
+          if [ -z "$base" ] || ! git show "$base:backend/openapi.json" > /tmp/base.json 2>/dev/null; then
+            echo "No API contract in the last release (${base:-none}); nothing to compare."
+            exit 0
+          fi
+          echo "Comparing with $base"
+          # Deliberate breaks for this release only, one oasdiff message per line (see docs/development.md).
+          touch backend/openapi-allowed-breaks.txt
+          ./oasdiff breaking /tmp/base.json backend/openapi.json --fail-on ERR \
+            --err-ignore backend/openapi-allowed-breaks.txt
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Shellcheck the native installer and tools
+        run: |
+          docker run --rm -v "$PWD:/w:ro" koalaman/shellcheck:stable -S warning \
+            /w/deploy/native/install.sh /w/deploy/native/meshhome /w/deploy/native/build-release.sh
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [backend, api-contract, frontend, installer]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image name (GHCR requires lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build multi-arch image (push on main only)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+      - if: env.PUBLISH == 'true'
+        name: Verify both architectures were published
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" | tee /tmp/manifest.txt
+          grep -q "linux/amd64" /tmp/manifest.txt
+          grep -q "linux/arm64" /tmp/manifest.txt
+
+  deploy-pin:
+    # Rewrites deploy/k8s/deployment.yaml to the image just built, so Fleet rolls it out.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [image]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Check the cluster can pull the image
+        # A new GHCR package (e.g. after renaming or forking the repository) starts out private.
+        # Pinning it would make Fleet replace the running pod with one that can't pull its image.
+        # Clusters that use a pull secret instead: set the repository variable ALLOW_PRIVATE_IMAGE=true.
+        if: vars.ALLOW_PRIVATE_IMAGE != 'true'
+        run: |
+          set -euo pipefail
+          name="${GITHUB_REPOSITORY,,}"
+          token=$(curl -sS "https://ghcr.io/token?scope=repository:$name:pull" | jq -r '.token // empty' || true)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json' "https://ghcr.io/v2/$name/manifests/$GITHUB_SHA")
+          if [ "$code" != 200 ]; then
+            echo "::error::ghcr.io/$name can't be pulled anonymously (HTTP $code), so the deployment was not pinned."
+            echo "::error::Make the package public (GitHub → Packages → ${name#*/} → Package settings → Change visibility), then re-run this job."
+            exit 1
+          fi
+          echo "ghcr.io/$name:$GITHUB_SHA is publicly pullable"
+      - name: Pin deployment to this commit's image
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          # Stale-build guard: only pin if main still points at the commit we built.
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main has moved past $GITHUB_SHA; the newer build will pin itself."
+            exit 0
+          fi
+          git checkout -B main origin/main
+          # Works for forks too: points the app container at this repository's own image.
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          sed -i -E "s#^(\s*image: )ghcr\.io/.*#\1${IMAGE}:${GITHUB_SHA}#" deploy/k8s/deployment.yaml
+          grep -n "image: ghcr.io" deploy/k8s/deployment.yaml
+          if git diff --quiet; then echo "already pinned"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy: pin image to ${GITHUB_SHA::7} [skip ci]"
+          if ! git push origin main; then
+            echo "Push raced with a newer commit; that commit's build will pin itself."
+          fi

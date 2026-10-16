@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -48 440 376" role="img" aria-label="MeshHome">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 300 L220 140 L400 300" stroke="#0f172a" stroke-width="40"/>
+    <g stroke="#0d9488" stroke-width="32">
+      <path d="M150 80 a100 100 0 0 1 140 0"/>
+      <path d="M95 30 a175 175 0 0 1 250 0" opacity=".55"/>
+    </g>
+    <circle cx="220" cy="140" r="34" fill="#0d9488"/>
+  </g>
+</svg>

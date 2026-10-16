@@ -1,0 +1,38 @@
+# Local trial / development stack. Real values come from .env (gitignored) — see .env.example.
+#   cp .env.example .env   # then set POSTGRES_PASSWORD
+#   docker compose up --build
+#   docker compose logs app | grep -A3 "setup token"
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: meshcore
+      POSTGRES_DB: meshcore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshcore -d meshcore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshcore:${POSTGRES_PASSWORD}@db:5432/meshcore
+      RADIO_ENABLED: ${RADIO_ENABLED:-true}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-auto}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+
+volumes:
+  db-data:

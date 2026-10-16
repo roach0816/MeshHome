@@ -1,0 +1,7 @@
+# Rancher Continuous Delivery (Fleet) bundle for MeshHome.
+# Fleet renders kustomization.yaml in this directory. The namespace, Secrets, PVCs and
+# Ingress are created by hand (see the *.example.yaml files) and are NOT part of this bundle,
+# so removing the bundle can never delete the database volume or credentials.
+defaultNamespace: meshhome
+# Leave workloads in place if the GitRepo/bundle is deleted.
+keepResources: true

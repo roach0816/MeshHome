@@ -1,0 +1,16 @@
+# ZephCore release that MeshHome installs for the "Radio HAT on this Pi" option
+# (RAKwireless RAK6421 WisMesh Pi HAT + RAK13300/RAK13302 in IO slot 1).
+#
+# ZephCore (https://github.com/liquidraver/ZephCore, MIT licence) is a port of the MeshCore
+# firmware that runs as a Linux program and serves the MeshCore companion protocol on TCP
+# port 5000. Its Linux builds need glibc 2.38 or newer (Debian 13 / Raspberry Pi OS 13).
+#
+# Update all values together, after testing, and recompute the checksums from the release assets.
+ZEPHCORE_VERSION=1.17.6-zephcore
+ZEPHCORE_BASE_URL=https://github.com/liquidraver/ZephCore/releases/download/1.17.6-zephcore
+ZEPHCORE_PI4_ASSET=zephcore_linux_rak6421-companion-3c7a7c8
+ZEPHCORE_PI4_SHA256=b28f8ddb3d9b8db1aace79a6ac4c82402398fbe720b125e34ec7d5e0e333c125
+ZEPHCORE_PI5_ASSET=zephcore_linux_rak6421_pi5-companion-3c7a7c8
+ZEPHCORE_PI5_SHA256=06a1f3a8606e213c190e482593b5e63af4c6d80f834f40fca4f29785089b16e3
+ZEPHCORE_MIN_GLIBC=2.38
+ZEPHCORE_PORT=5000

@@ -1,0 +1,30 @@
+# TEMPLATE ONLY — fill in your StorageClass and apply by hand (Rancher → Storage →
+# PersistentVolumeClaims → Create → Edit as YAML). Kept out of Fleet so data is never
+# deleted with the bundle.
+#   kubectl get storageclass        # pick your NFS class; do not assume its name
+#
+# PostgreSQL on NFS needs a HARD mount and an export that honours synchronous writes.
+# The data directory must be owned by UID/GID 999 (the postgres user in the image).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: meshhome-db-data
+  namespace: meshhome
+spec:
+  storageClassName: <YOUR_NFS_STORAGECLASS>
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: meshhome-backups
+  namespace: meshhome
+spec:
+  storageClassName: <YOUR_NFS_STORAGECLASS>
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi

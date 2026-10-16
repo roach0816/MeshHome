@@ -1,0 +1,12 @@
+[Unit]
+Description=MeshHome network/HTTPS settings (requested from the web interface)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root. Re-validates every value, may install nginx/certbot from Debian's repositories,
+# obtains certificates, rewrites the nginx site and the app's port, and restores the previous
+# configuration if the app doesn't come back. The request file is deleted as soon as it is read.
+ExecStart=@PREFIX@/current/deploy/native/install.sh --apply-config
+TimeoutStartSec=20min

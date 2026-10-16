@@ -1,0 +1,6 @@
+# Apply by hand once (Rancher → Cluster → Projects/Namespaces → Create, or kubectl apply).
+# Kept out of the Fleet bundle so the namespace — and the data in it — survives bundle removal.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meshhome

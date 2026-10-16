@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for MeshHome network/HTTPS settings changes from the web interface
+
+[Path]
+# Written by the (unprivileged) app when you apply Settings → Network & HTTPS.
+PathChanged=@STATE_DIR@/config-request.json
+Unit=@SERVICE@-config.service
+
+[Install]
+WantedBy=multi-user.target

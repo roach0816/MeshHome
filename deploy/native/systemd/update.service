@@ -1,0 +1,12 @@
+[Unit]
+Description=MeshHome in-place upgrade (requested from the web interface)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root. Only installs an official, checksum-verified release from the repository in
+# @ENV_FILE@, backs up the database first, and rolls back if the new
+# version doesn't start. The request file only selects a version number.
+ExecStart=@PREFIX@/current/deploy/native/install.sh --from-request
+TimeoutStartSec=30min

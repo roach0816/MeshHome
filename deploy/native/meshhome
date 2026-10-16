@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# meshhome — manage a native MeshHome install. Installs from before the rename to MeshHome keep
+# the old names (meshcore-home, /opt/meshcore-home, …) until `migrate` moves them.
+set -euo pipefail
+if [[ -d /opt/meshcore-home && ! -d /opt/meshhome ]]; then
+  PREFIX=/opt/meshcore-home STATE_DIR=/var/lib/meshcore-home SERVICE=meshcore-home DB=meshcore
+else
+  PREFIX=/opt/meshhome STATE_DIR=/var/lib/meshhome SERVICE=meshhome DB=meshhome
+fi
+ME=$SERVICE
+INSTALLER=$PREFIX/current/deploy/native/install.sh
+
+need_root() { [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"; }
+
+usage() {
+  cat <<USAGE
+Usage: $ME <command>
+
+  status         Diagnostic report: service, web, radio, database, HTTPS, updates, system, log problems
+  logs [-f]      Show (or follow) the application log
+  update         Upgrade to the latest release (interactive)
+  restart        Restart the application
+  setup-token    Show the first-run setup token (until setup is completed)
+  backup         Back up the database now
+  https          Set up HTTPS (nginx + Let's Encrypt via Cloudflare DNS); --disable to remove
+  security-updates   Turn on Debian's automatic OS security updates
+  radio-hat [remove [--purge] | restart | logs [-f]]
+                 Set up (or remove) the RAK6421 radio HAT on a Raspberry Pi 4/5
+  uninstall      Remove the application (add --purge to delete all data)
+  migrate        Move an install from before the rename to the MeshHome names (meshhome, /opt/meshhome, …)
+  version        Print the installed version
+USAGE
+}
+
+cmd=${1:-status}; shift || true
+case "$cmd" in
+  version) cat "$PREFIX/current/VERSION" ;;
+  status)
+    # A full diagnostic report (service, web, radio, database, HTTPS, updates, system, recent
+    # log problems). Needs root to read the configuration and the app's health snapshot.
+    need_root "$cmd" "$@"
+    exec python3 "$PREFIX/current/deploy/native/status.py" "$@" ;;
+  logs) exec journalctl -u "$SERVICE" --no-pager -n 200 "$@" ;;
+  restart) need_root "$cmd" "$@"; systemctl restart "$SERVICE"; systemctl --no-pager status "$SERVICE" | head -n 5 ;;
+  update|upgrade) need_root "$cmd" "$@"; exec bash "$INSTALLER" --upgrade "$@" ;;
+  uninstall) need_root "$cmd" "$@"; cp "$INSTALLER" /tmp/meshhome-uninstall.sh; exec bash /tmp/meshhome-uninstall.sh --uninstall "$@" ;;
+  migrate) need_root "$cmd" "$@"; cp "$INSTALLER" /tmp/meshhome-migrate.sh; exec bash /tmp/meshhome-migrate.sh --migrate "$@" ;;
+  https)
+    need_root "$cmd" "$@"
+    if [[ ${1:-} == --disable ]]; then shift; exec bash "$INSTALLER" --https-disable "$@"; fi
+    exec bash "$INSTALLER" --https "$@" ;;
+  security-updates) need_root "$cmd" "$@"; exec bash "$INSTALLER" --security-updates ;;
+  radio-hat)
+    need_root "$cmd" "$@"
+    case "${1:-setup}" in
+      setup) exec bash "$INSTALLER" --radio-hat ;;
+      remove) shift; exec bash "$INSTALLER" --radio-hat --remove "$@" ;;
+      restart) systemctl restart "$SERVICE-radio" && systemctl --no-pager status "$SERVICE-radio" | head -n 5 ;;
+      logs) shift; exec journalctl -u "$SERVICE-radio" --no-pager -n 200 "$@" ;;
+      *) usage; exit 2 ;;
+    esac ;;
+  setup-token)
+    need_root "$cmd" "$@"
+    if [[ -f $STATE_DIR/setup-token ]]; then cat "$STATE_DIR/setup-token"; else echo "Setup has already been completed (no token)."; fi ;;
+  backup)
+    need_root "$cmd" "$@"
+    f="$STATE_DIR/backups/manual-$(date +%Y%m%dT%H%M%S).dump"
+    runuser -u "$DB" -- pg_dump -Fc -f "$f" "$DB" && echo "Backup written to $f" ;;
+  -h|--help|help) usage ;;
+  *) usage; exit 2 ;;
+esac

@@ -1,0 +1,28 @@
+# TEMPLATE ONLY — create the real Ingress by hand in Rancher:
+#   Service Discovery → Ingresses → Create → "Edit as YAML" (do not use the guided form).
+#   kubectl get ingressclass     → <YOUR_INGRESS_CLASS>
+#   kubectl get clusterissuer    → <YOUR_CLUSTER_ISSUER>
+# Point an INTERNAL DNS record for <YOUR_HOSTNAME> at the ingress address. Do not port-forward.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: meshhome
+  namespace: meshhome
+  annotations:
+    cert-manager.io/cluster-issuer: <YOUR_CLUSTER_ISSUER>
+spec:
+  ingressClassName: <YOUR_INGRESS_CLASS>
+  rules:
+    - host: <YOUR_HOSTNAME>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: meshhome
+                port:
+                  number: 80
+  tls:
+    - hosts: ["<YOUR_HOSTNAME>"]
+      secretName: meshhome-tls

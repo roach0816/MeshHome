@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: meshhome-db-backup
+  labels: { app.kubernetes.io/name: meshhome-db-backup, app.kubernetes.io/part-of: meshhome }
+spec:
+  schedule: "17 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: { app.kubernetes.io/name: meshhome-db-backup, app.kubernetes.io/part-of: meshhome }
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+          containers:
+            - name: pg-dump
+              # Same major version as the server.
+              image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+              imagePullPolicy: IfNotPresent
+              env:
+                - { name: PGHOST, value: meshhome-db }
+                - { name: PGUSER, value: meshhome }
+                - { name: PGDATABASE, value: meshhome }
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: meshhome-db, key: POSTGRES_PASSWORD } }
+                - { name: RETAIN_DAYS, value: "30" }
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+                  final="/backups/meshhome-$stamp.dump"
+                  tmp="$final.partial"
+                  pg_dump --format=custom --file="$tmp"
+                  pg_restore --list "$tmp" > /dev/null   # sanity-check the archive
+                  mv "$tmp" "$final"
+                  sha256sum "$final" > "$final.sha256"
+                  echo "wrote $final ($(du -h "$final" | cut -f1))"
+                  # Prune old backups only after a successful one, and always keep the newest 3.
+                  ls -1t /backups/meshhome-*.dump | tail -n +4 | while read -r f; do
+                    if [ -n "$(find "$f" -mtime +"$RETAIN_DAYS")" ]; then rm -f "$f" "$f.sha256"; echo "pruned $f"; fi
+                  done
+                  rm -f /backups/*.partial
+              resources:
+                requests: { cpu: 50m, memory: 64Mi }
+                limits: { cpu: 500m, memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: backups
+              persistentVolumeClaim: { claimName: meshhome-backups }
+            - name: tmp
+              emptyDir: {}

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# certbot deploy hook for MeshHome (also run once after HTTPS setup): reload nginx so a
+# renewed certificate is used, and record the certificate's expiry for the app to display.
+set -euo pipefail
+if [[ -f /etc/meshhome/meshhome.env ]]; then
+  ENV_FILE=/etc/meshhome/meshhome.env STATE_DIR=/var/lib/meshhome
+else  # an install from before the rename to MeshHome
+  ENV_FILE=/etc/meshcore-home/meshcore-home.env STATE_DIR=/var/lib/meshcore-home
+fi
+cert=$(sed -n 's/^TLS_CERT=//p' "$ENV_FILE" 2>/dev/null | tail -n1)
+host=$(sed -n 's/^HTTPS_HOST=//p' "$ENV_FILE" 2>/dev/null | tail -n1)
+enabled=$(sed -n 's/^HTTPS_ENABLED=//p' "$ENV_FILE" 2>/dev/null | tail -n1)
+systemctl reload nginx 2>/dev/null || true
+[[ $enabled != 0 && -n $cert && -f $cert ]] || exit 0
+not_after=$(openssl x509 -enddate -noout -in "$cert" | cut -d= -f2)
+issuer=$(openssl x509 -issuer -noout -in "$cert" | sed 's/^issuer=//')
+python3 - "$STATE_DIR/tls-status.json" "$host" "$not_after" "$issuer" <<'PY'
+import json, os, sys, time
+path, host, not_after, issuer = sys.argv[1:5]
+try:
+    from datetime import datetime
+    exp = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").isoformat() + "Z"
+except ValueError:
+    exp = not_after
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump({"host": host, "not_after": exp, "issuer": issuer, "updated_at": time.time()}, f)
+os.chmod(tmp, 0o644)
+os.replace(tmp, path)
+PY

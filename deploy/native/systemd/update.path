@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for MeshHome upgrade requests from the web interface
+
+[Path]
+# Written by the (unprivileged) app when you click "Install update".
+PathChanged=@STATE_DIR@/update-request.json
+Unit=@SERVICE@-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,45 @@
+name: Release assets
+
+# On every version tag, build the native (Debian / Raspberry Pi) package and attach it to the
+# GitHub release, together with install.sh and SHA256SUMS. Installed apps check this release
+# for updates, and the installer downloads from it.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  native-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag must match APP_VERSION
+        run: |
+          v=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' backend/app/config.py)
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "Tag $GITHUB_REF_NAME != APP_VERSION $v"; exit 1; }
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - name: Build package
+        run: bash deploy/native/build-release.sh dist-release
+      - uses: docker/setup-qemu-action@v4
+      - name: Smoke-test the package installs its Python dependencies on arm64 (Raspberry Pi)
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD/dist-release:/r:ro" python:3.11-slim-bookworm bash -c '
+            set -e; mkdir /t && tar -xzf /r/meshhome-*.tar.gz -C /t --strip-components=1
+            python -m venv /t/venv && /t/venv/bin/pip install -q --only-binary=:all: -r /t/requirements.txt
+            cd /t && /t/venv/bin/python -c "import app.main"'
+      - name: Attach to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The release is usually created right after the tag is pushed; wait for it briefly.
+          for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && break; sleep 10; done
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes ""
+          gh release upload "$GITHUB_REF_NAME" dist-release/* --clobber

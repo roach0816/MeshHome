@@ -1,0 +1,8 @@
+[Unit]
+Description=MeshHome: renew the HTTPS certificate (lego, DNS-01)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@PREFIX@/current/deploy/native/install.sh --acme-renew
