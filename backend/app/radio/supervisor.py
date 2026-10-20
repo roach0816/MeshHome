@@ -24,7 +24,14 @@ from app import db
 from app.config import get_settings
 from app.models import Channel, CollectionGap, Contact, Conversation, Message, Radio, SendAttempt, utcnow
 from app.radio import packets
-from app.radio.base import IncomingMessage, RadioAdapter, RadioChannel, RadioError, RemoteTicket
+from app.radio.base import (
+    CHANNEL_MAX_BYTES,
+    IncomingMessage,
+    RadioAdapter,
+    RadioChannel,
+    RadioError,
+    RemoteTicket,
+)
 from app.radio.meshcore_tcp import MeshCoreTcpRadio
 from app.radio.simulated import SimulatedRadio
 from app.realtime import hub
@@ -489,7 +496,9 @@ class RadioSupervisor:
         own = self._radio.public_key if self._radio else ""
         if msg.kind == "channel" and msg.channel_slot is not None:
             slot = int(msg.channel_slot)
-            key, entries, packet = self._paths.claim_packet(channel_hash=self._channel_hashes.get(slot))
+            key, entries, packet = self._paths.claim_packet(
+                channel_hash=self._channel_hashes.get(slot), carries=lambda p: self._carries(p, slot, msg)
+            )
             signed = self._signature_of(packet, slot, msg) if packet is not None else None
             if signed:
                 msg.meta = {**(msg.meta or {}), "signed": signed}
@@ -502,6 +511,17 @@ class RadioSupervisor:
         if entries:
             msg.meta = {**(msg.meta or {}), "paths": entries}
         return key
+
+    def _carries(self, packet: packets.Packet, slot: int, msg: IncomingMessage) -> bool | None:
+        """Whether a channel packet is this message's (by decrypting it); None if it can't tell."""
+        secret = self._channel_keys.get(slot)
+        plain = packets.decrypt_group(secret, packet.payload) if secret else None
+        if plain is None or len(plain) < 5:
+            return None
+        end = plain.find(b"\0", 5)
+        sent = f"{msg.sender_label}: {msg.text}" if msg.sender_label else msg.text
+        same_time = not msg.sender_timestamp or int.from_bytes(plain[:4], "little") == msg.sender_timestamp
+        return plain[5 : end if end >= 0 else len(plain)] == sent.encode() and same_time
 
     def _signature_of(self, packet: packets.Packet, slot: int, msg: IncomingMessage) -> dict[str, Any] | None:
         """The signature after a channel message's text (services/signed_messages.py), read from
@@ -516,14 +536,7 @@ class RadioSupervisor:
             msg.sender_timestamp and ending.timestamp != msg.sender_timestamp
         ):
             return None
-        return {
-            "v": 1,
-            "key_id": ending.key_id.hex(),
-            "signature": ending.signature.hex(),
-            # What was decrypted (without the block padding): kept so the signature can be checked
-            # later against the sender's key, once it's known.
-            "plaintext": plain[: 5 + len(ending.text) + 1 + signed_messages.ENDING_SIZE].hex(),
-        }
+        return signed_messages.meta_for(ending, secret)
 
     async def _persist_incoming(self, msg: IncomingMessage) -> None:
         if msg.kind == "dm" and msg.txt_type == TXT_CLI_DATA and msg.pubkey_prefix and self.cli_reply_hook:
@@ -624,12 +637,13 @@ class RadioSupervisor:
             if m is None:
                 return None
             conv = await s.get(Conversation, m.conversation_id)
-            # ("channel", slot, region scope) or ("dm", public key)
+            # ("channel", slot, region scope, sign) or ("dm", public key)
             target: tuple | None = None
             if conv.kind == "channel" and conv.channel_id:
                 ch = await s.get(Channel, conv.channel_id)
                 if ch and ch.active:
-                    target = ("channel", ch.slot, ch.flood_scope)
+                    sign = conv.sign_messages and not (m.meta or {}).get("unsigned")
+                    target = ("channel", ch.slot, ch.flood_scope, sign)
             elif conv.contact_id:
                 contact = await s.get(Contact, conv.contact_id)
                 if contact:
@@ -654,12 +668,16 @@ class RadioSupervisor:
     async def _transmit(self, message_id, conversation_id, attempt_id, target, body) -> None:
         adapter = self._adapter
         state, error, ack, deadline = States.UNCERTAIN, None, None, None
+        signed: dict[str, Any] | None = None
         try:
             if adapter is None:
                 raise RadioError("radio disconnected before transmission")
             ts = int(time.time())
             if target[0] == "channel":
-                result = await self._cmd(adapter.send_channel, target[1], body, ts, target[2])
+                after = await self._signature_for(adapter, target[1], body, ts) if target[3] else None
+                result = await self._cmd(adapter.send_channel, target[1], body, ts, target[2], after or b"")
+                if result.ok and after:
+                    signed = {"v": 1, "key_id": after[2:10].hex(), "signature": after[10:].hex(), "ts": ts}
             else:
                 result = await self._cmd(adapter.send_dm, target[1], body, ts)
             if result.ok:
@@ -684,16 +702,39 @@ class RadioSupervisor:
         except Exception as exc:  # noqa: BLE001
             state = States.UNCERTAIN
             error = f"Outcome unknown: {_safe_error(exc)}. It may or may not have been transmitted."
-        await self._finish_send(message_id, attempt_id, state, error, ack, deadline)
+        await self._finish_send(message_id, attempt_id, state, error, ack, deadline, signed)
         hub.publish("delivery-updated", message_id=str(message_id), conversation_id=str(conversation_id))
 
-    async def _finish_send(self, message_id, attempt_id, state, error, ack, deadline) -> None:
+    async def _signature_for(self, adapter: RadioAdapter, slot: int, body: str, ts: int) -> bytes | None:
+        """The signature to send after a channel message's text (services/signed_messages.py), made
+        by the radio with its own key. None (sent unsigned) if it doesn't fit or can't be made."""
+        secret = self._channel_keys.get(slot)
+        name = self._radio.name if self._radio else ""
+        own = self._radio.public_key if self._radio else ""
+        text = f"{name}: {body}".encode()
+        if not secret or not own or len(text) + signed_messages.OVERHEAD > CHANNEL_MAX_BYTES:
+            return None
+        try:
+            sig = await self._cmd(
+                adapter.sign, signed_messages.signed_bytes(signed_messages.channel_tag(secret), ts, text)
+            )
+        except (RadioError, TimeoutError) as exc:
+            log.warning("could not sign a channel message, sending it unsigned: %s", _safe_error(exc))
+            return None
+        return signed_messages.ending(bytes.fromhex(own), sig)
+
+    async def _finish_send(self, message_id, attempt_id, state, error, ack, deadline, signed=None) -> None:
         async with db.session_factory()() as s:
             await s.execute(
                 update(Message)
                 .where(Message.id == message_id)
                 .values(state=state, error=error, expected_ack=ack, ack_deadline=deadline)
             )
+            if signed:
+                m = await s.get(Message, message_id)
+                if m is not None:
+                    m.meta = {**(m.meta or {}), "signed": signed}
+                    m.signed_by = self._radio.public_key if self._radio else None
             await s.execute(
                 update(SendAttempt)
                 .where(SendAttempt.id == attempt_id)

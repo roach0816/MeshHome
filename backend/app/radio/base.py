@@ -165,10 +165,16 @@ class RadioAdapter(ABC):
 
     @abstractmethod
     async def send_channel(
-        self, slot: int, text: str, timestamp: int, scope: str | None = None
+        self, slot: int, text: str, timestamp: int, scope: str | None = None, after_text: bytes = b""
     ) -> SendResult:
         """Send on a channel slot. `scope` is a region name (without "#") applied to this
-        message only; None uses the radio's default flood scope."""
+        message only; None uses the radio's default flood scope. `after_text`: bytes sent after the
+        text's terminating zero (a signature, services/signed_messages.py); other apps stop at it."""
+
+    async def sign(self, data: bytes) -> bytes:
+        """An Ed25519 signature over `data` with the radio's own identity key, made on the radio
+        (the key never leaves it)."""
+        raise NotSupported("this radio connection can't sign")
 
     @abstractmethod
     async def send_dm(self, public_key: str, text: str, timestamp: int) -> SendResult: ...

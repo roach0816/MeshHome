@@ -42,6 +42,34 @@ A tour of everything MeshHome does. The [README](../README.md#what-it-does) has 
   *All messages*, *Direct messages only*, or *Off*, with per-conversation overrides.
 - **Read state** is shared across browsers and only moves forward.
 
+### Signed messages
+
+Anyone with a channel's key can post under any name. A **signed** message carries a signature after
+the text, made by the sender's radio with its own key, so you can tell it really came from that key
+and wasn't changed. MeshHome uses the same format as MeshOS, so each can check the other's
+signatures; other MeshCore apps and radios show the text as usual.
+
+- **Ticks beside the time:** green, signed by one of your radio's contacts; grey, the signature
+  checks out but the sender isn't a contact; a question mark, signed by a key your radio hasn't
+  heard yet (checked as soon as it is); red, it doesn't match (altered, or not really from that
+  sender). No tick: not signed. Tap a message to see who signed it.
+- **Signed messages…** in a channel (the shield in its header, or its menu):
+  - **Sign my messages:** the radio signs what you send there (its private key never leaves it).
+    Signatures take 75 bytes, so messages are shorter.
+  - **Only messages from my contacts:** hides messages that aren't signed by one of your radio's
+    contacts. They aren't deleted: they come back if you add the sender or turn this off.
+- **Trust is a contact.** A signature proves only that the holder of a key sent the message. Trust
+  comes from adding that key as a contact after checking it with the person:
+  - **Share my contact** (in the same dialog) posts your contact card in the channel, as MeshCore's
+    standard contact link. In MeshHome and MeshOS it shows as a card with an **Add** button.
+  - **Add** shows the start of their key (such as `B3F8 CE5B 40D1 A9E2`) to compare with them in
+    person or on a call, then adds them to your radio's contacts.
+  - **Contacts → My contact** shows your QR code, link and key, and adds someone from a link they
+    sent you.
+
+The signature covers the channel, the time and the text, so it can't be moved to another channel
+or reused. Contact cards are too long to carry a signature.
+
 ## Contacts
 
 A compact, searchable list (name, device type, last heard) with type and status filters, sorting in

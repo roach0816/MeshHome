@@ -18,6 +18,8 @@ tablet or computer on your network.
 
 - **Messaging:** channels and direct messages with search, unread counts, favourites, emoji, honest
   delivery states (*Sent by radio*, *Delivered*, …), and live updates in every open browser.
+- **Signed messages:** sign what you post in a channel, see who really sent each signed message
+  (compatible with MeshOS), and share your contact so others can trust yours.
 - **Message insight:** details for every message (SNR, RSSI, hops) and the paths it took through the
   mesh, with repeaters named from your contacts.
 - **Contacts and map:** a searchable contact list that follows the radio's adverts, and a map of every

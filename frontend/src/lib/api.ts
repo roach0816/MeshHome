@@ -114,6 +114,27 @@ export interface Message {
   is_simulated: boolean;
   client_message_id: string | null;
   meta: Record<string, unknown>;
+  /** Signed channel messages: how the signature checks out (null: not signed). */
+  signature?: MessageSignature | null;
+}
+
+/** self: sent by this radio; contact: signed by one of the radio's contacts; known: valid, but the
+ *  signer isn't a contact; unknown: signed by a key this radio hasn't heard yet; invalid: doesn't match. */
+export type SignatureState = "self" | "contact" | "known" | "unknown" | "invalid";
+
+export interface MessageSignature {
+  state: SignatureState;
+  key_id: string;
+  signer_name: string | null;
+  signer_key: string | null;
+}
+
+/** This radio's own contact, for sharing (GET /api/contacts/me). */
+export interface MyContact {
+  name: string;
+  public_key: string;
+  kind: number;
+  uri: string;
 }
 
 export interface Conversation {
@@ -135,6 +156,8 @@ export interface Conversation {
   contact_public_key: string | null;
   peer_prefix: string | null;
   max_bytes: number;
+  sign_messages?: boolean;
+  contacts_only?: boolean;
   preview: {
     body: string;
     direction: "in" | "out";

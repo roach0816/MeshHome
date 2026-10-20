@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.5**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.6**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -245,7 +245,9 @@ All conversations, most recent activity first.
     "contact_public_key": null,
     "peer_prefix": null,
     "max_bytes": 144,
-    "preview": {"body": "Anyone copy?", "direction": "in", "sender_label": "Hilltop", "state": "received", "created_at": "…"}
+    "preview": {"body": "Anyone copy?", "direction": "in", "sender_label": "Hilltop", "state": "received", "created_at": "…"},
+    "sign_messages": false,
+    "contacts_only": false
   }
 ]
 ```
@@ -286,6 +288,16 @@ Change the owner's preferences for a conversation. Send only the fields to chang
 ```
 
 `sound` is `"on"`, `"off"` or `"default"` (follow the global notification setting). Returns `204`.
+
+Channels also take the [signed message](features.md#signed-messages) settings:
+
+- `sign_messages`: sign what this radio sends in the channel. Signatures take 75 bytes, so the
+  conversation's `max_bytes` drops by 75 while it's on.
+- `contacts_only`: show only messages signed by one of the radio's contacts. The rest are hidden
+  (as blocked senders' are: not returned, never unread, no notifications) and come back when the
+  sender becomes a contact or the setting is turned off.
+
+Either on a DM is `422`.
 
 For a DM with a known contact, `favorite` is the **contact's** favourite flag on the radio (the
 same as `POST /api/contacts/{id}/favorite`), so changing it needs the radio connected (`409` if
@@ -357,7 +369,19 @@ Without `before`/`after` you get the newest `limit` messages.
 - `duplicate_count` counts extra copies of the same message heard via other paths.
 - `meta` holds radio details when available (`SNR`, `RSSI`, `path_len` hops). Treat every field
   as optional.
-- Messages from blocked contacts are not returned.
+- Messages from blocked contacts are not returned, nor, in a channel set to `contacts_only`,
+  messages not signed by a contact.
+- `signature` is `null` unless the message is a signed channel message:
+
+  ```json
+  {"state": "contact", "key_id": "b3f8ce5b40d1a9e2", "signer_name": "Alice", "signer_key": "b3f8ce5b…"}
+  ```
+
+  `state` is `self` (sent by this radio), `contact` (signed by one of the radio's contacts),
+  `known` (the signature checks out, but the signer isn't a contact), `unknown` (signed by a key
+  the radio hasn't heard yet, so it can't be checked; it is checked once the key is known), or
+  `invalid` (it doesn't match: the text was changed, or it isn't from that key). `key_id` is the
+  first 8 bytes of the signer's public key; `signer_key` is the whole key once known.
 
 #### `POST /api/conversations/{conversation_id}/messages` — write
 
@@ -371,6 +395,9 @@ Send a message.
   are allowed.
 - Returns the stored message (`state: "queued"`). Delivery continues in the background; follow it
   with the WebSocket or by polling the message list.
+- In a channel with `sign_messages` on, the radio signs the message as it's sent. `"sign": false`
+  sends this one unsigned, with the unsigned limit (`max_bytes` + 75): for a contact link, which
+  is too long to carry a signature.
 
 Errors to handle:
 
@@ -445,6 +472,13 @@ This can be large; prefer the paged endpoints for regular syncing.
 
 Contacts are the nodes the radio knows about. `kind` is `1` companion (a person), `2` repeater,
 `3` room server, `4` sensor.
+
+#### `GET /api/contacts/me` — read
+
+This radio's own contact, for sharing: `{"name": "…", "public_key": "<64 hex>", "kind": 1, "uri":
+"meshcore://contact/add?name=…&public_key=…&type=1"}`. The `uri` is MeshCore's standard contact
+link (the QR code in the MeshCore app); posting it in a channel shows as a contact card with an
+**Add** button in MeshHome and MeshOS. `409` if no radio has been connected yet.
 
 #### `GET /api/contacts` — read
 
@@ -708,7 +742,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

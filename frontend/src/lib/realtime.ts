@@ -77,6 +77,9 @@ export function useRealtime(enabled: boolean): SocketState {
             break;
           case "contacts-updated":
             qc.invalidateQueries({ queryKey: ["contacts"] });
+            // A contact came or went: signed messages may now show as a contact's (or not).
+            qc.invalidateQueries({ queryKey: ["messages"] });
+            qc.invalidateQueries({ queryKey: ["my-contact"] });
             qc.invalidateQueries({ queryKey: ["map"] });
             qc.invalidateQueries({ queryKey: ["device"] });
             break;

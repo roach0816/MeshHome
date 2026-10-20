@@ -9,7 +9,7 @@ import re
 import uuid
 from datetime import datetime
 from typing import Any, Literal
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -216,6 +216,39 @@ async def _contact(db: AsyncSession, contact_id: uuid.UUID) -> Contact:
     if c is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contact not found")
     return c
+
+
+class MyContact(BaseModel):
+    name: str
+    public_key: str
+    kind: int  # 1: companion (chat)
+    uri: str  # meshcore://contact/add?…, the link and QR code other MeshCore apps import
+
+
+def contact_uri(name: str, public_key: str, kind: int = 1) -> str:
+    """MeshCore's standard contact link (docs.meshcore.io/qr_codes), as the MeshCore app shows
+    it under "Share my contact"."""
+    return "meshcore://contact/add?" + urlencode({"name": name, "public_key": public_key, "type": kind})
+
+
+@router.get("/me", response_model=MyContact)
+async def my_contact(
+    ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
+) -> MyContact:
+    """This radio's own contact, for sharing: others add it to message you and to check your
+    signed messages."""
+    radio = supervisor.radio
+    if radio is None:
+        radio = (
+            (await db.execute(select(Radio).order_by(Radio.last_connected_at.desc().nulls_last())))
+            .scalars()
+            .first()
+        )
+    if radio is None or not radio.public_key:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No radio has been connected yet")
+    return MyContact(
+        name=radio.name, public_key=radio.public_key, kind=1, uri=contact_uri(radio.name, radio.public_key)
+    )
 
 
 @router.get("/{contact_id}", response_model=ContactDetail)

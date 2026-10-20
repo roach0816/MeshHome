@@ -253,7 +253,7 @@ class MeshCoreTcpRadio(RadioAdapter):
         raise RadioError(f"unexpected response to message fetch ({_describe(res)})")
 
     async def send_channel(
-        self, slot: int, text: str, timestamp: int, scope: str | None = None
+        self, slot: int, text: str, timestamp: int, scope: str | None = None, after_text: bytes = b""
     ) -> SendResult:
         mc = self._require()
         if scope:
@@ -263,7 +263,17 @@ class MeshCoreTcpRadio(RadioAdapter):
             if res is None or res.is_error():
                 return SendResult(ok=False, error=f"could not set region scope ({_describe(res)})")
         try:
-            res = await mc.commands.send_chan_msg(slot, text, timestamp)
+            if after_text:
+                from meshcore import EventType
+
+                # CMD_SEND_CHANNEL_TXT_MSG with raw bytes: the library only sends UTF-8 text, and
+                # the firmware passes the text bytes on as given, zero byte and all.
+                frame = b"\x03\x00" + bytes([slot]) + timestamp.to_bytes(4, "little")
+                res = await mc.commands.send(
+                    frame + text.encode() + b"\0" + after_text, [EventType.OK, EventType.ERROR]
+                )
+            else:
+                res = await mc.commands.send_chan_msg(slot, text, timestamp)
         finally:
             if scope:
                 reset = await mc.commands.set_flood_scope(None)
@@ -272,6 +282,14 @@ class MeshCoreTcpRadio(RadioAdapter):
         if res is None or res.is_error():
             return SendResult(ok=False, error=_describe(res))
         return SendResult(ok=True)
+
+    async def sign(self, data: bytes) -> bytes:
+        mc = self._require()
+        res = await mc.commands.sign(data)
+        sig = _payload(res).get("signature") if res is not None and not res.is_error() else None
+        if not isinstance(sig, bytes | bytearray) or len(sig) != 64:
+            raise RadioError(f"the radio did not sign ({_describe(res)})")
+        return bytes(sig)
 
     async def send_dm(self, public_key: str, text: str, timestamp: int) -> SendResult:
         mc = self._require()

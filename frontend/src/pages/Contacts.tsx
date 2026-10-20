@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import {
+  IdCard,
   ArrowDown,
   ArrowUp,
   Ban,
@@ -25,6 +26,7 @@ import { Badge, Button, ErrorText, Field, IconButton, Input } from "../component
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Dialog } from "../components/Dialog";
 import { useContextTrigger } from "../components/useContextTrigger";
+import { MyContactDialog } from "../components/SignedMessages";
 import { canCopy, cx, formatDateTime, sameDay } from "../lib/util";
 
 // MeshCore advert types.
@@ -124,6 +126,7 @@ export function Contacts() {
     if (data && page > pages) setPage(pages);
   }, [data, page, pages]);
 
+  const [showMine, setShowMine] = useState(false);
   const actions = useContactActions();
   const trigger = useContextTrigger();
   const from = data && data.total ? (page - 1) * pageSize + 1 : 0;
@@ -141,7 +144,11 @@ export function Contacts() {
         </Link>
         {/* No refresh button: the list follows the radio's adverts (and re-reads every 30 minutes). */}
         <h2 className="flex-1 px-1 py-2 text-base font-semibold">Contacts</h2>
+        <Button onClick={() => setShowMine(true)}>
+          <IdCard className="size-4" aria-hidden /> My contact
+        </Button>
       </header>
+      {showMine && <MyContactDialog onClose={() => setShowMine(false)} />}
 
       {/* Toolbar: search, filters, sort */}
       <div className="space-y-2 border-b border-line bg-surface px-3 py-2.5 md:px-4">

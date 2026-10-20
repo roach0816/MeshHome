@@ -1,12 +1,13 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMatch, useNavigate } from "react-router";
-import { Bell, BellOff, CheckCheck, Copy, Eraser, Info, MessageSquare, Star, StarOff, Trash2, X } from "lucide-react";
+import { Bell, BellOff, CheckCheck, Copy, Eraser, Info, MessageSquare, ShieldCheck, Star, StarOff, Trash2, X } from "lucide-react";
 import { soundDefaultFor, soundEnabledFor, type SoundSetting } from "../lib/sound";
 import { api, type Conversation, type ConversationInfo } from "../lib/api";
 import { canCopy, formatDateTime } from "../lib/util";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { Dialog } from "./Dialog";
+import { SignedMessagesDialog } from "./SignedMessages";
 import { Badge, Button, ErrorText, IconButton } from "./ui";
 
 const CONTACT_KIND: Record<number, string> = { 1: "Companion", 2: "Repeater", 3: "Room server", 4: "Sensor" };
@@ -25,6 +26,7 @@ export function useConversationActions() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [infoFor, setInfoFor] = useState<Conversation | null>(null);
   const [deleting, setDeleting] = useState<Conversation | null>(null);
+  const [signingFor, setSigningFor] = useState<Conversation | null>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["conversations"] });
 
@@ -73,6 +75,9 @@ export function useConversationActions() {
         onSelect: () => sound.mutate({ c, value }),
       } satisfies MenuItem;
     })(),
+    ...(c.kind === "channel" && !c.archived
+      ? [{ label: "Signed messages…", icon: <ShieldCheck className="size-4" />, onSelect: () => setSigningFor(c) }]
+      : []),
     ...(c.contact_public_key && canCopy()
       ? [
           {
@@ -122,6 +127,7 @@ export function useConversationActions() {
           }}
         />
       )}
+      {signingFor && <SignedMessagesDialog conv={signingFor} onClose={() => setSigningFor(null)} />}
       {deleting && (
         <DeleteDialog
           conv={deleting}

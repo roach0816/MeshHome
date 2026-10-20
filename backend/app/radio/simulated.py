@@ -202,14 +202,19 @@ class SimulatedRadio(RadioAdapter):
         return self._queue.popleft() if self._queue else None
 
     async def send_channel(
-        self, slot: int, text: str, timestamp: int, scope: str | None = None
+        self, slot: int, text: str, timestamp: int, scope: str | None = None, after_text: bytes = b""
     ) -> SendResult:
         self._require()
         if slot not in sim_state()["channels"]:
             return SendResult(ok=False, error="unknown channel slot")
         sim_state()["last_channel_scope"] = scope
+        sim_state()["last_channel_after_text"] = after_text
         await asyncio.sleep(0.15)
         return SendResult(ok=True)
+
+    async def sign(self, data: bytes) -> bytes:
+        self._require()
+        return identity.sign(sim_state()["private_key"], data)
 
     async def send_dm(self, public_key: str, text: str, timestamp: int) -> SendResult:
         self._require()

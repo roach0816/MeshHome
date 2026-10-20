@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
-import { ArrowDown, Bot, ChevronLeft, Copy, Hash, Info, RotateCw, SendHorizontal, Star, UserRound, X } from "lucide-react";
+import { ArrowDown, Bot, ChevronLeft, Copy, Hash, Info, RotateCw, SendHorizontal, ShieldCheck, Star, UserRound, X } from "lucide-react";
 import { api, ApiError, type Conversation, type Message, type MessagePage, type Status } from "../lib/api";
 import {
   cx,
@@ -22,6 +22,13 @@ import { Badge, IconButton } from "../components/ui";
 import { useMessageActions } from "../components/MessageActions";
 import { useContextTrigger } from "../components/useContextTrigger";
 import { EmojiButton } from "../components/EmojiPicker";
+import {
+  ContactCard,
+  contactLink,
+  SignatureDetails,
+  SignatureTick,
+  SignedMessagesDialog,
+} from "../components/SignedMessages";
 
 const PAGE = 50;
 // How long the "New" line stays once you are watching the thread (window focused, at the bottom).
@@ -55,6 +62,7 @@ function ThreadView({ conv, status }: { conv: Conversation; status?: Status }) {
   const didInitialScroll = useRef(false);
   const [showJump, setShowJump] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [signing, setSigning] = useState(false);
   const messageActions = useMessageActions(conv);
   // The "New" line sits above the first message that was unread when the thread opened (or that
   // arrived while you weren't looking). It doesn't move as messages are marked read; it goes away
@@ -215,6 +223,14 @@ function ThreadView({ conv, status }: { conv: Conversation; status?: Status }) {
           >
             <Star className={cx("size-5", conv.favorite && "fill-current text-warn")} />
           </IconButton>
+          {conv.kind === "channel" && !conv.archived && (
+            <IconButton
+              label={conv.sign_messages ? "Signed messages (signing on)" : "Signed messages"}
+              onClick={() => setSigning(true)}
+            >
+              <ShieldCheck className={cx("size-5", conv.sign_messages && "text-accent")} />
+            </IconButton>
+          )}
           <IconButton label="Conversation details" aria-pressed={showDetails} onClick={() => setShowDetails((v) => !v)}>
             <Info className="size-5" />
           </IconButton>
@@ -315,6 +331,7 @@ function ThreadView({ conv, status }: { conv: Conversation; status?: Status }) {
       </section>
       {messageActions.element}
       {showDetails && <Details conv={conv} onClose={() => setShowDetails(false)} />}
+      {signing && <SignedMessagesDialog conv={conv} onClose={() => setSigning(false)} />}
     </div>
   );
 }
@@ -362,6 +379,7 @@ function Bubble({
     retry.mutate(risky);
   };
   const tone = stateTone(m.state);
+  const card = conv.kind === "channel" ? contactLink(m.body) : null;
 
   return (
     <li className={cx("flex flex-col", out ? "items-end" : "items-start", !grouped && "pt-2")}>
@@ -390,9 +408,11 @@ function Bubble({
             </span>
           )}
           {m.duplicate_count > 0 && <span>heard ×{m.duplicate_count + 1}</span>}
+          {m.signature && <SignatureTick sig={m.signature} />}
           <time dateTime={m.created_at}>{formatTime(m.created_at)}</time>
         </span>
       </button>
+      {card && <ContactCard uri={card.uri} name={card.name} contactKey={card.key} own={out} />}
       {out && m.state !== "received" && (
         <span
           className={cx(
@@ -428,7 +448,10 @@ function Bubble({
               <dd className="font-mono">{m.sender_key_prefix}…</dd>
             </>
           )}
-          {Object.entries(m.meta ?? {}).map(([k, v]) => (
+          {m.signature && <SignatureDetails sig={m.signature} />}
+          {Object.entries(m.meta ?? {})
+            .filter(([k]) => k !== "signed" && k !== "unsigned")
+            .map(([k, v]) => (
             <Fragment key={k}>
               <dt>{k}</dt>
               <dd>{String(v)}</dd>

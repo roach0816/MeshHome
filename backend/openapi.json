@@ -1115,6 +1115,28 @@
         }
       }
     },
+    "/api/contacts/me": {
+      "get": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "My Contact",
+        "description": "This radio's own contact, for sharing: others add it to message you and to check your\nsigned messages.",
+        "operationId": "my_contact_api_contacts_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyContact"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/contacts/{contact_id}": {
       "get": {
         "tags": [
@@ -5551,6 +5573,16 @@
                 "type": "null"
               }
             ]
+          },
+          "sign_messages": {
+            "type": "boolean",
+            "title": "Sign Messages",
+            "default": false
+          },
+          "contacts_only": {
+            "type": "boolean",
+            "title": "Contacts Only",
+            "default": false
           }
         },
         "type": "object",
@@ -5609,6 +5641,28 @@
               }
             ],
             "title": "Sound"
+          },
+          "sign_messages": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sign Messages"
+          },
+          "contacts_only": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacts Only"
           }
         },
         "type": "object",
@@ -6206,6 +6260,16 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Meta"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignatureOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -6294,6 +6358,34 @@
           "features"
         ],
         "title": "Meta"
+      },
+      "MyContact": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "public_key": {
+            "type": "string",
+            "title": "Public Key"
+          },
+          "kind": {
+            "type": "integer",
+            "title": "Kind"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "public_key",
+          "kind",
+          "uri"
+        ],
+        "title": "MyContact"
       },
       "NetworkConfigIn": {
         "properties": {
@@ -6900,6 +6992,16 @@
             "type": "object",
             "title": "Meta"
           },
+          "signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignatureOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "conversation_title": {
             "type": "string",
             "title": "Conversation Title"
@@ -6940,6 +7042,17 @@
             "maxLength": 4096,
             "minLength": 1,
             "title": "Body"
+          },
+          "sign": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sign"
           }
         },
         "type": "object",
@@ -7161,6 +7274,53 @@
           "version"
         ],
         "title": "SetupStatus"
+      },
+      "SignatureOut": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "self",
+              "contact",
+              "known",
+              "unknown",
+              "invalid"
+            ],
+            "title": "State"
+          },
+          "key_id": {
+            "type": "string",
+            "title": "Key Id"
+          },
+          "signer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signer Name"
+          },
+          "signer_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signer Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "key_id"
+        ],
+        "title": "SignatureOut"
       },
       "SignedIn": {
         "properties": {

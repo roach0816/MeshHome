@@ -21,13 +21,23 @@ from app.radio.base import CHANNEL_MAX_BYTES, DM_MAX_BYTES
 from app.radio.supervisor import supervisor
 from app.realtime import hub
 from app.security import send_limiter
-from app.services import messaging
+from app.services import messaging, signed_messages
 from app.services.messaging import States
 
 router = APIRouter(prefix="/api", tags=["inbox"])
 
 
 # ---- schemas ----------------------------------------------------------------------------
+
+
+class SignatureOut(BaseModel):
+    # self: sent by this radio; contact: valid, signed by one of the radio's contacts; known: valid,
+    # signer known but not a contact; unknown: signed by a key this radio doesn't know yet (can't be
+    # checked); invalid: doesn't match (altered, or not really from that key).
+    state: Literal["self", "contact", "known", "unknown", "invalid"]
+    key_id: str  # first 8 bytes of the signer's public key (hex)
+    signer_name: str | None = None
+    signer_key: str | None = None  # the full public key, once known
 
 
 class MessageOut(BaseModel):
@@ -46,6 +56,7 @@ class MessageOut(BaseModel):
     is_simulated: bool
     client_message_id: str | None
     meta: dict[str, Any]
+    signature: SignatureOut | None = None  # signed channel messages (services/signed_messages.py)
 
     model_config = {"from_attributes": True}
 
@@ -78,6 +89,9 @@ class ConversationOut(BaseModel):
     peer_prefix: str | None = None
     max_bytes: int
     preview: Preview | None = None
+    # Channels: sign what this radio sends here; show only messages signed by one of its contacts.
+    sign_messages: bool = False
+    contacts_only: bool = False
 
 
 class MessagePage(BaseModel):
@@ -88,6 +102,9 @@ class MessagePage(BaseModel):
 class SendRequest(BaseModel):
     client_message_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     body: str = Field(min_length=1, max_length=4096)
+    # Channels that sign: false sends this one unsigned, with the longer unsigned limit (contact
+    # cards, which are too long to carry a signature). Default: the channel's setting.
+    sign: bool | None = None
 
 
 class RetryRequest(BaseModel):
@@ -103,6 +120,8 @@ class ConversationPatch(BaseModel):
     muted: bool | None = None
     # "on"/"off" override the global sound setting; "default" clears the override.
     sound: Literal["on", "off", "default"] | None = None
+    sign_messages: bool | None = None  # channels only
+    contacts_only: bool | None = None  # channels only
 
 
 class SearchHit(MessageOut):
@@ -112,9 +131,42 @@ class SearchHit(MessageOut):
 # ---- helpers ----------------------------------------------------------------------------
 
 
-def channel_budget(radio_name: str) -> int:
-    # Channel text is transmitted as "<node name>: <body>".
-    return max(0, CHANNEL_MAX_BYTES - len(radio_name.encode()) - 2)
+def channel_budget(radio_name: str, signed: bool = False) -> int:
+    # Channel text is transmitted as "<node name>: <body>", and a signature takes part of it.
+    overhead = signed_messages.OVERHEAD if signed else 0
+    return max(0, CHANNEL_MAX_BYTES - len(radio_name.encode()) - 2 - overhead)
+
+
+async def with_signatures(db: AsyncSession, radio_id: uuid.UUID, msgs: list[Message]) -> list[MessageOut]:
+    """MessageOut for messages, with how their signatures show (one contacts lookup per page)."""
+    out = [MessageOut.model_validate(m) for m in msgs]
+    signed = [(o, m) for o, m in zip(out, msgs, strict=True) if (m.meta or {}).get("signed")]
+    if not signed:
+        return out
+    radio = await db.get(Radio, radio_id)
+    contacts = await signed_messages.contact_keys(db, radio_id)
+    keys = {m.signed_by for _, m in signed if m.signed_by and m.signed_by not in contacts}
+    known = (
+        dict(
+            (
+                await db.execute(select(Contact.public_key, Contact.name).where(Contact.public_key.in_(keys)))
+            ).all()
+        )
+        if keys
+        else {}
+    )
+    own = radio.public_key if radio else None
+    for o, m in signed:
+        st = signed_messages.state(m, contacts, own)
+        sig = m.meta["signed"]
+        name = radio.name if st == "self" and radio else contacts.get(m.signed_by) or known.get(m.signed_by)
+        o.signature = SignatureOut(
+            state=st,
+            key_id=sig.get("key_id", ""),
+            signer_name=name,
+            signer_key=m.signed_by or (own if st == "self" else None),
+        )
+    return out
 
 
 async def _conversation(db: AsyncSession, conv_id: uuid.UUID) -> Conversation:
@@ -199,7 +251,11 @@ async def _conversation_rows(db: AsyncSession, user_id: uuid.UUID, conv_id: uuid
                 contact_id=contact.id if contact else None,
                 contact_public_key=contact.public_key if contact else None,
                 peer_prefix=conv.peer_prefix,
-                max_bytes=channel_budget(radio.name) if conv.kind == "channel" else DM_MAX_BYTES,
+                max_bytes=channel_budget(radio.name, conv.sign_messages)
+                if conv.kind == "channel"
+                else DM_MAX_BYTES,
+                sign_messages=conv.sign_messages,
+                contacts_only=conv.contacts_only,
                 preview=Preview(
                     body=p.body[:140],
                     direction=p.direction,
@@ -257,8 +313,22 @@ async def patch_conversation(
         conv.muted = body.muted
     if body.sound is not None:
         conv.sound = None if body.sound == "default" else body.sound
+    refilter = False
+    if body.sign_messages is not None or body.contacts_only is not None:
+        if conv.kind != "channel":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Signed messages are for channels")
+        if body.sign_messages is not None:
+            conv.sign_messages = body.sign_messages
+        if body.contacts_only is not None and body.contacts_only != conv.contacts_only:
+            conv.contacts_only = body.contacts_only
+            refilter = True
+    if refilter:
+        await db.flush()
+        await signed_messages.refresh_hidden(db, conv.radio_id, [conv.id])
     await db.commit()
     hub.publish("conversations-updated")
+    if refilter:
+        hub.publish("delivery-updated", conversation_id=str(conv.id))
 
 
 class ConversationContactInfo(BaseModel):
@@ -397,7 +467,7 @@ async def list_messages(
     ctx: AuthContext = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    await _conversation(db, conv_id)
+    conv = await _conversation(db, conv_id)
     q = select(Message).where(Message.conversation_id == conv_id, Message.suppressed.is_(False))
     if after is not None:
         rows = (
@@ -405,12 +475,14 @@ async def list_messages(
             .scalars()
             .all()
         )
-        return MessagePage(messages=rows[:limit], has_more=len(rows) > limit)
+        return MessagePage(
+            messages=await with_signatures(db, conv.radio_id, rows[:limit]), has_more=len(rows) > limit
+        )
     if before is not None:
         q = q.where(Message.position < before)
     rows = (await db.execute(q.order_by(Message.position.desc()).limit(limit + 1))).scalars().all()
     page = list(reversed(rows[:limit]))
-    return MessagePage(messages=page, has_more=len(rows) > limit)
+    return MessagePage(messages=await with_signatures(db, conv.radio_id, page), has_more=len(rows) > limit)
 
 
 @router.post("/conversations/{conv_id}/messages", response_model=MessageOut)
@@ -443,7 +515,8 @@ async def send_message(
         )
     if not body.body.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Message is empty")
-    budget = channel_budget(radio.name) if conv.kind == "channel" else DM_MAX_BYTES
+    signs = conv.kind == "channel" and conv.sign_messages and body.sign is not False
+    budget = channel_budget(radio.name, signs) if conv.kind == "channel" else DM_MAX_BYTES
     size = len(body.body.encode("utf-8"))
     if size > budget:
         raise HTTPException(
@@ -466,6 +539,8 @@ async def send_message(
         )
     except messaging.IdempotencyConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, "client_message_id was already used") from exc
+    if created and conv.kind == "channel" and conv.sign_messages and not signs:
+        msg.meta = {**(msg.meta or {}), "unsigned": True}
     await db.commit()
     if created:
         hub.publish("message-created", conversation_id=str(conv.id), message_id=str(msg.id))

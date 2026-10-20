@@ -195,6 +195,10 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_message_at: Mapped[datetime | None]
     last_position: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Signed channel messages (services/signed_messages.py): sign what this radio sends here, and
+    # show only messages signed by one of the radio's contacts (the rest are suppressed).
+    sign_messages: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    contacts_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class Message(Base):
@@ -227,6 +231,8 @@ class Message(Base):
     is_simulated: Mapped[bool] = mapped_column(Boolean, default=False)
     # True while the sender is blocked; hidden from history, unread counts, search and sounds.
     suppressed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # A signed channel message whose signature checked out: the signer's public key (hex).
+    signed_by: Mapped[str | None] = mapped_column(String(64))
     meta: Mapped[dict[str, Any]] = mapped_column(default=dict)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

@@ -34,3 +34,26 @@ def public_key(private_key: bytes) -> str:
     out = bytearray(int(point.y).to_bytes(32, "little"))
     out[31] |= (int(point.x) & 1) << 7
     return out.hex()
+
+
+_L = 2**252 + 27742317777372353535851937790883648493  # the Ed25519 group order
+
+
+def _encode(point) -> bytes:
+    out = bytearray(int(point.y).to_bytes(32, "little"))
+    out[31] |= (int(point.x) & 1) << 7
+    return bytes(out)
+
+
+def sign(private_key: bytes, message: bytes) -> bytes:
+    """An Ed25519 signature made with a firmware private key (RFC 8032 with the key already
+    expanded, as MeshCore's ed25519_sign does). Used by the simulated radio."""
+    if len(private_key) != PRIVATE_KEY_BYTES:
+        raise ValueError("A MeshCore private key is 64 bytes")
+    a = int.from_bytes(private_key[:32], "little")
+    g = ECC._curves["ed25519"].G
+    pub = _encode(g * a)
+    r = int.from_bytes(hashlib.sha512(private_key[32:] + message).digest(), "little") % _L
+    big_r = _encode(g * r)
+    k = int.from_bytes(hashlib.sha512(big_r + pub + message).digest(), "little") % _L
+    return big_r + ((r + k * a) % _L).to_bytes(32, "little")

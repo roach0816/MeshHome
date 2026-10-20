@@ -6,8 +6,9 @@ when a message arrives, pick the packet that carried it (same channel, or same s
 the destination) and record its path. Copies of that packet heard later through other repeaters
 (same MeshCore packet hash) are added as further paths for a minute.
 
-Matching is by channel or sender plus timing, so two messages on one channel within the same
-second could be confused; that is rare, and the paths are labelled as heard by this radio.
+Matching is by channel or sender plus timing. For channel messages the radio has the key for, the
+packet is also decrypted and its text compared, so two messages on one channel within the same
+second aren't confused; for DMs they could be (rare), and paths are labelled as heard by this radio.
 Messages the radio stored while MeshHome was not connected have no paths.
 """
 
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -81,9 +83,16 @@ class PathTracker:
         return key, entries
 
     def claim_packet(
-        self, *, channel_hash: int | None = None, sender_hash: int | None = None, self_hash: int | None = None
+        self,
+        *,
+        channel_hash: int | None = None,
+        sender_hash: int | None = None,
+        self_hash: int | None = None,
+        carries: Callable[[Packet], bool | None] | None = None,
     ) -> tuple[str | None, list[dict[str, Any]], Packet | None]:
-        """claim(), plus the packet that carried the message."""
+        """claim(), plus the packet that carried the message. `carries` can tell for sure whether a
+        packet is this message's (True/False, e.g. by decrypting it) or not (None): a packet it
+        confirms wins over a newer one that only matches by channel and timing."""
         now = self.clock()
         self._expire(now)
 
@@ -101,7 +110,13 @@ class PathTracker:
                 )
             return False
 
-        found = next((h for h in reversed(self._recent) if matches(h)), None)
+        candidates = [h for h in reversed(self._recent) if matches(h)]
+        found = None
+        if carries is not None:
+            verdicts = [(h, carries(h.packet)) for h in candidates]
+            found = next((h for h, v in verdicts if v is True), None)
+            candidates = [h for h, v in verdicts if v is not False]
+        found = found or next(iter(candidates), None)
         if found is None:
             return None, [], None
         copies = [h for h in self._recent if h.packet.key == found.packet.key]

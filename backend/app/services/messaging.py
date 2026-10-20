@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Channel, Contact, Conversation, Message, Radio, utcnow
 from app.radio.base import DeviceSnapshot, IncomingMessage, RadioChannel, RadioContact
+from app.services import signed_messages
 
 
 class States:
@@ -86,10 +87,25 @@ async def sync_contacts(db: AsyncSession, radio: Radio, contacts: list[RadioCont
         row.favorite = bool(rc.flags & 0x01)
         row.on_radio = True
         row.meta = {**rc.meta, "flags": rc.flags, "path_len": rc.path_len, "path_hex": rc.path_hex}
+    before = {k for k, row in existing.items() if row.on_radio}
     for key, row in existing.items():
         if key not in seen:
             row.on_radio = False  # archive keeps it; the radio no longer has it
     await db.flush()
+    if seen != before:
+        # A contact came or went: signatures by new keys can now be checked, and channels that
+        # show only contacts' messages show or hide theirs.
+        await signed_messages.check_pending(db, radio.id)
+        filtered = (
+            await db.execute(
+                select(Conversation.id).where(
+                    Conversation.radio_id == radio.id, Conversation.contacts_only.is_(True)
+                )
+            )
+        ).scalars()
+        ids = list(filtered)
+        if ids:
+            await signed_messages.refresh_hidden(db, radio.id, ids)
     return len(contacts)
 
 
@@ -240,21 +256,9 @@ async def set_contact_blocked(db: AsyncSession, contact: Contact, blocked: bool)
             .values(suppressed=blocked)
         )
         changed += res.rowcount or 0
-    if contact.name:
-        channel_convs = select(Conversation.id).where(
-            Conversation.radio_id == contact.radio_id, Conversation.kind == "channel"
-        )
-        res = await db.execute(
-            update(Message)
-            .where(
-                Message.conversation_id.in_(channel_convs),
-                Message.direction == "in",
-                Message.sender_label == contact.name,
-            )
-            .values(suppressed=blocked)
-        )
-        changed += res.rowcount or 0
+    # Channels: messages under that name, and those it signed in "contacts only" channels.
     await db.flush()
+    changed += await signed_messages.refresh_hidden(db, contact.radio_id)
     return changed
 
 
@@ -314,6 +318,10 @@ async def ingest_incoming(db: AsyncSession, radio: Radio, msg: IncomingMessage) 
         meta=msg.meta,
     )
     db.add(m)
+    if conv.kind == "channel" and (msg.meta or {}).get("signed"):
+        await signed_messages.check(db, radio.id, m)
+    if conv.kind == "channel" and not suppressed and await signed_messages.hidden_on_arrival(db, conv, m):
+        suppressed = m.suppressed = True
     if not suppressed:
         conv.last_message_at = now
     conv.last_position = position
