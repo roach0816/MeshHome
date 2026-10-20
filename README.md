@@ -7,9 +7,12 @@ connection to a MeshCore companion radio, archives every message it hears in Pos
 browser is open), and gives you a fast chat interface for channels and direct messages from any phone,
 tablet or computer on your network.
 
-<!-- SCREENSHOT: save a screenshot of the inbox as docs/images/inbox.png, then replace the line below with:
-     ![MeshHome inbox](docs/images/inbox.png) -->
-> ![MeshHome inbox](docs/images/inbox.png)
+**Website:** [meshhome.app](https://meshhome.app)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-desktop-dark.png">
+  <img src="docs/images/screenshot-desktop-light.png" alt="MeshHome in a desktop browser: the conversation list next to a direct message where a contact asks /weather and the home node replies with the weather">
+</picture>
 
 ## What it does
 
@@ -34,6 +37,49 @@ tablet or computer on your network.
 - **Try it without hardware:** a built-in simulated radio produces labelled sample traffic.
 
 The full tour is in **[Features](docs/features.md)**.
+
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-phone-dark.png">
+    <img src="docs/images/screenshot-phone-light.png" alt="MeshHome's inbox on a phone" width="230">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-map-dark.jpg">
+    <img src="docs/images/screenshot-map-light.jpg" alt="MeshHome's node map with companions, repeaters, room servers and sensors" width="560">
+  </picture>
+</p>
+
+<sub>Screenshots use sample conversations on the built-in simulated radio.</sub>
+
+## How it works
+
+MeshHome stays at home next to your radio and collects messages around the clock. How you reach it
+depends on where you are.
+
+**At home:** open MeshHome on any phone, tablet or computer on your Wi-Fi. No Bluetooth pairing and no
+radio in your pocket.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-at-home-dark.png">
+  <img src="docs/images/how-it-works-at-home-light.png" alt="At home: messages arrive by LoRa at the radio in the house, MeshHome on the Raspberry Pi saves them, and a person on the couch reads them on their phone over Wi-Fi">
+</picture>
+
+**Away, over your VPN:** connect your phone to your home network with a VPN you already run (such as
+WireGuard or Tailscale) and use MeshHome as if you were at home. MeshHome itself stays closed to the
+internet, and your replies go out over LoRa from the radio at home.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-away-vpn-dark.png">
+  <img src="docs/images/how-it-works-away-vpn-light.png" alt="Away from home: a phone on mobile data reaches the home router through an encrypted VPN tunnel, opens MeshHome, and the radio at home sends the reply over LoRa">
+</picture>
+
+**Off-grid, over LoRa:** with a MeshCore companion radio in your pocket, message your home node over
+the mesh, with no internet or mobile signal. The bot answers commands such as `/weather`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-overview-dark.png">
+  <img src="docs/images/how-it-works-overview-light.png" alt="Off-grid: a phone paired with a pocket LoRa radio sends /weather through a repeater on the roof to the radio and Raspberry Pi inside, and MeshHome replies with the weather">
+</picture>
 
 ## What you need
 
@@ -148,6 +194,13 @@ flowchart LR
 - **Least privilege on a Pi.** The app runs unprivileged and never gets root. Updates, HTTPS and
   system backups are requests that a root-owned helper re-checks before acting, with automatic
   rollback.
+
+Every connection, with its ports and which side starts it:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-network-dark.png">
+  <img src="docs/images/how-it-works-network-light.png" alt="MeshHome network diagram: the LoRa mesh, the MeshHome host with the companion radio, MeshHome, PostgreSQL and optional nginx, the home network's browsers, scripts and devices, and the outbound internet services">
+</picture>
 
 ## Security and privacy
 

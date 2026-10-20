@@ -85,6 +85,17 @@ body {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
+/* iPhone/iPad home-screen web app: iOS fades the top of the page into the status bar. Headers at the
+   top of the screen get extra room so their text and buttons sit below the fade. (The -webkit-touch-
+   callout test limits this to iOS; installed apps on Android and desktops have no fade.) */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .pwa-top {
+      padding-top: calc(env(safe-area-inset-top) + 1.75rem);
+    }
+  }
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

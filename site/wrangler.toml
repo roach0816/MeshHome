@@ -1,0 +1,14 @@
+# meshhome.app: the project website, served as static files by a Cloudflare Worker (free plan).
+# Deploy from this folder with `npx wrangler deploy`.
+name = "meshhome-site"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [
+  { pattern = "meshhome.app", custom_domain = true },
+  { pattern = "www.meshhome.app", custom_domain = true },
+]
+
+[assets]
+directory = "./public"
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"

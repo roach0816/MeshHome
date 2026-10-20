@@ -111,7 +111,7 @@ function CategoryBadge({ id }: { id: CategoryId }) {
 export function SettingsLayout({ active, children }: { active: CategoryId; children: ReactNode }) {
   return (
     <div className="flex h-full">
-      <nav aria-label="Settings" className="hidden w-56 shrink-0 overflow-y-auto border-r border-line bg-surface lg:block">
+      <nav aria-label="Settings" className="pwa-top hidden w-56 shrink-0 overflow-y-auto border-r border-line bg-surface lg:block">
         <h2 className="px-4 pb-2 pt-4 text-base font-semibold">Settings</h2>
         <ul className="space-y-0.5 px-2 pb-4">
           {CATEGORIES.map((c) => (
@@ -140,7 +140,7 @@ export function SettingsLayout({ active, children }: { active: CategoryId; child
 function SettingsPage({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 lg:px-4">
+      <header className="pwa-top flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 lg:px-4">
         <Link
           to="/settings"
           className="inline-flex size-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 lg:hidden"
@@ -161,7 +161,7 @@ function SettingsPage({ title, children }: { title: string; children: ReactNode 
 function SettingsMenu() {
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 md:px-4">
+      <header className="pwa-top flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 md:px-4">
         <Link
           to="/"
           className="inline-flex size-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 md:hidden"

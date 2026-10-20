@@ -31,7 +31,7 @@ test-results/
 *.tsbuildinfo
 dist-release/
 
-# Cloudflare Wrangler (push-relay/): local state and secrets
+# Cloudflare Wrangler (site/): local state
 .wrangler/
 .dev.vars*
 *.p8

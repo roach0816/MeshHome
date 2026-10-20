@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MeshHome · A home inbox for your MeshCore radio</title>
+  <meta name="description" content="MeshHome is a free, open-source, self-hosted web inbox for a MeshCore radio. It archives every message, works in any browser on your network, and runs on a Raspberry Pi, in Docker or in Kubernetes.">
+  <meta name="theme-color" content="#f7f9f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1215" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="MeshHome">
+  <meta property="og:description" content="A free, self-hosted web inbox for your MeshCore radio.">
+  <meta property="og:url" content="https://meshhome.app/">
+  <meta property="og:type" content="website">
+  <link rel="canonical" href="https://meshhome.app/">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/poppins-latin-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="MeshHome home">
+      <svg viewBox="0 -48 440 376" aria-hidden="true">
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M40 300 L220 140 L400 300" stroke="var(--ink)" stroke-width="40"/>
+          <g stroke="var(--teal)" stroke-width="32">
+            <path d="M150 80 a100 100 0 0 1 140 0"/>
+            <path d="M95 30 a175 175 0 0 1 250 0" opacity=".55"/>
+          </g>
+          <circle cx="220" cy="140" r="34" fill="var(--teal)" stroke="none"/>
+        </g>
+      </svg>
+      <span>Mesh<b>Home</b></span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#how-it-works" class="hide-sm">How it works</a>
+      <a href="#setups">Setups</a>
+      <a href="#install">Install</a>
+      <a href="/privacy/">Privacy</a>
+      <a class="gh" href="https://github.com/roach0816/MeshHome">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ hero ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <span class="eyebrow">Free · open source · self-hosted</span>
+      <h1>Your MeshCore radio, on every screen at home.</h1>
+      <p class="lede">MeshHome keeps one connection to a MeshCore companion radio, saves every message it hears, and gives you a fast chat inbox in the browser on any phone, tablet or computer on your network.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/roach0816/MeshHome">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+          View on GitHub
+        </a>
+        <a class="btn" href="#install">Install it</a>
+      </div>
+      <ul class="facts-strip">
+        <li>Every message saved, even with no browser open</li>
+        <li>No cloud account</li>
+        <li>Raspberry Pi, Docker or Kubernetes</li>
+      </ul>
+    </div>
+
+    <div class="shots">
+      <div class="frame shot-desktop">
+        <div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <picture>
+          <source srcset="/img/desktop-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="/img/desktop-light.webp" width="1920" height="1200" alt="MeshHome in a desktop browser: the conversation list beside a direct message where a contact asks /weather and the home node replies with the temperature, humidity and wind.">
+        </picture>
+      </div>
+      <picture>
+        <source srcset="/img/phone-dark.webp" media="(prefers-color-scheme: dark)">
+        <img class="frame shot-phone" src="/img/phone-light.webp" width="780" height="1688" alt="MeshHome on a phone: the inbox with direct messages and channels.">
+      </picture>
+    </div>
+    <p class="caption">Screenshots use sample conversations on MeshHome's built-in simulated radio.</p>
+  </div>
+</section>
+
+<!-- ============ features ============ -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">What it does</span>
+      <h2>Everything your radio hears, in one inbox.</h2>
+      <p>MeshHome runs on a small server at home and stays connected to your radio around the clock. Open it from any browser on your network and pick up where you left off.</p>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Channels and direct messages</h3>
+        <p>Search, unread counts, favourites and drafts, with live updates in every open browser. Delivery states say what the radio actually confirmed.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="18" r="2"/><circle cx="19" cy="6" r="2"/><path d="M7 18h6a3 3 0 0 0 0-6h-2a3 3 0 0 1 0-6h6"/></svg>See how messages travel</h3>
+        <p>Signal (SNR and RSSI), hops, and every path a message took through the mesh, with repeaters named from your contacts.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Contacts and a live map</h3>
+        <p>A contact list that follows the radio's adverts, and a map of every node that shares its position, filtered by type and when it was last heard.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h12M20 18h0"/><path d="M15 4v4M9 10v4M18 16v4"/></svg>Your radio's settings</h3>
+        <p>Name and location, region presets, channels with QR codes and region scopes, routing and telemetry, checked against the firmware's limits before sending.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V10M8.5 21 12 10l3.5 11M9.6 16.5h4.8"/><path d="M7 6a7 7 0 0 1 10 0M9.5 8.5a3.5 3.5 0 0 1 5 0"/></svg>Manage your repeaters</h3>
+        <p>Log in to repeaters and room servers for their status, command line and settings. Nothing is fetched until you ask, to save airtime.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="9" width="14" height="10" rx="2"/><path d="M12 5v4M9.5 13.5h0M14.5 13.5h0M9.5 16.5h5"/></svg>A bot, with apps</h3>
+        <p>Friends can message your node with <code>/info</code> or <code>/ping</code>. Add commands such as <code>/weather</code> from the <a href="https://github.com/roach0816/MeshHome-apps">app catalog</a>. Apps are recipes, not code.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17.5h2"/></svg>Install it like an app</h3>
+        <p>With HTTPS on, add MeshHome to your phone's home screen or your computer's dock, with notifications sent by your own server.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4C6 4 5 5 5 7v2c0 1.5-1 2.5-2 3 1 .5 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 2.5 2 3-1 .5-2 1.5-2 3v2c0 2-1 3-3 3"/></svg>An API for your scripts</h3>
+        <p>API keys let other services read and send messages and follow events live. The <a href="https://github.com/roach0816/MeshHome/blob/main/docs/API.md">API is documented</a>.</p>
+      </div>
+      <div class="feature">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Backups and easy updates</h3>
+        <p>Encrypted backup and restore of the whole installation. On a Pi, a guided installer, HTTPS with Let's Encrypt, and one-click updates that roll back if anything fails.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ map ============ -->
+<section class="band">
+  <div class="wrap split">
+    <div class="copy">
+      <span class="eyebrow">Know your mesh</span>
+      <h2>See who's out there, and how far your messages reach.</h2>
+      <p class="lede lede-sm">Every node your radio hears lands on the map at the position it advertises. Open any hop in a message's path to see which repeater carried it, how far away it is, and the town it's in.</p>
+      <ul>
+        <li>Companions, repeaters, room servers and sensors</li>
+        <li>Filter by type and by when each node was last heard</li>
+        <li>OpenStreetMap by default, or your own tile server</li>
+      </ul>
+    </div>
+    <div class="frame">
+      <picture>
+        <source srcset="/img/map-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="/img/map-light.webp" width="1920" height="1200" loading="lazy" alt="MeshHome's node map: companions, repeaters, room servers and sensors as coloured markers on a street map, with the home node in the middle.">
+      </picture>
+    </div>
+  </div>
+</section>
+
+<!-- ============ how it works ============ -->
+<section id="how-it-works">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">How it works</span>
+      <h2>At home, away, or off-grid.</h2>
+      <p>MeshHome stays at home next to your radio and collects messages around the clock. How you reach it depends on where you are.</p>
+    </div>
+
+    <div class="scenes">
+      <input class="scene-input" type="radio" name="scene" id="sc-home" checked>
+      <input class="scene-input" type="radio" name="scene" id="sc-vpn">
+      <input class="scene-input" type="radio" name="scene" id="sc-mesh">
+      <div class="scene-tabs">
+        <label for="sc-home">At home</label>
+        <label for="sc-vpn">Away, over your VPN</label>
+        <label for="sc-mesh">Off-grid, over LoRa</label>
+      </div>
+
+      <div class="scene scene-home">
+        <div class="illus">
+          <picture>
+            <source srcset="/img/at-home-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/img/at-home-light.webp" width="2240" height="1234" alt="A repeater on a hill sends messages by LoRa to the radio inside a house. The radio is connected to a Raspberry Pi running MeshHome and a Wi-Fi router. A person on the couch reads the inbox on their phone over Wi-Fi.">
+          </picture>
+        </div>
+        <ol class="steps steps-3">
+          <li><span class="num">1</span><div><b>Messages arrive by radio</b><span>Your home radio hears channels and direct messages day and night, through nearby repeaters.</span></div></li>
+          <li><span class="num">2</span><div><b>MeshHome saves them</b><span>Every message goes into your archive, even when nobody has MeshHome open.</span></div></li>
+          <li><span class="num">3</span><div><b>Read and reply on Wi-Fi</b><span>Open MeshHome on any phone, tablet or computer at home. No Bluetooth pairing, and no radio in your pocket.</span></div></li>
+        </ol>
+      </div>
+
+      <div class="scene scene-vpn">
+        <div class="illus">
+          <picture>
+            <source srcset="/img/away-vpn-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/img/away-vpn-light.webp" width="2240" height="1236" loading="lazy" alt="A person in town on mobile data. Their phone connects through an encrypted VPN tunnel across the internet to the router at home and opens MeshHome. The radio at home sends their reply over LoRa.">
+          </picture>
+        </div>
+        <ol class="steps steps-3">
+          <li><span class="num">1</span><div><b>Connect to home</b><span>Your phone joins your home network through a VPN you run, such as WireGuard or Tailscale.</span></div></li>
+          <li><span class="num">2</span><div><b>Open MeshHome as usual</b><span>Everything is there, just as at home. MeshHome itself stays closed to the internet.</span></div></li>
+          <li><span class="num">3</span><div><b>Your home radio sends it</b><span>Replies go out over LoRa from the radio at home, wherever you are.</span></div></li>
+        </ol>
+        <p class="caption">MeshHome doesn't include a VPN. Use the one you already have, or your router's.</p>
+      </div>
+
+      <div class="scene scene-mesh">
+        <div class="illus">
+          <picture>
+            <source srcset="/img/how-it-works-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/img/how-it-works-light.webp" width="2240" height="1236" loading="lazy" alt="A person outside sends /weather from a phone paired with a pocket LoRa radio. The message goes to a repeater on the roof of a house, then to the LoRa radio and Raspberry Pi inside, and MeshHome replies with the weather.">
+          </picture>
+        </div>
+        <ol class="steps">
+          <li><span class="num">1</span><div><b>Ask from your phone</b><span>Send <code>/weather</code> to your home node in the MeshCore app.</span></div></li>
+          <li><span class="num">2</span><div><b>Your pocket radio sends it</b><span>The phone passes the message to a small LoRa radio over Bluetooth.</span></div></li>
+          <li><span class="num">3</span><div><b>A repeater relays it</b><span>A repeater up high passes it along, kilometres further.</span></div></li>
+          <li><span class="num">4</span><div><b>The home radio hears it</b><span>The radio at home receives it and hands it to MeshHome.</span></div></li>
+          <li><span class="num">5</span><div><b>MeshHome answers</b><span>It saves the message, and the bot replies by the same route. No internet or mobile signal needed.</span></div></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ architecture ============ -->
+<section id="setups" class="band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Two ways to set it up</span>
+      <h2>One box, or a radio wherever reception is best.</h2>
+      <p>MeshHome talks to the radio with the MeshCore companion protocol over TCP. The radio can sit on the Raspberry Pi itself, or anywhere on your network.</p>
+    </div>
+
+    <div class="legend" aria-hidden="true">
+      <span><svg viewBox="0 0 34 10"><path d="M2 5H32" class="d-lora"/></svg>LoRa radio</span>
+      <span><svg viewBox="0 0 34 10"><path d="M2 5H32" class="d-lan"/></svg>Your home network</span>
+      <span><svg viewBox="0 0 34 10"><path d="M2 5H32" class="d-int"/></svg>Inside the box</span>
+    </div>
+
+    <div class="arch">
+      <!-- A: all in one -->
+      <article class="arch-item">
+        <header>
+          <h3>All in one: a Raspberry Pi with a radio HAT</h3>
+          <p>The LoRa radio plugs straight onto the Pi. One device, one power supply, and the installer sets up everything.</p>
+        </header>
+        <div class="diagram">
+          <svg viewBox="0 0 820 380" role="img" aria-labelledby="da-t da-d">
+            <title id="da-t">All-in-one Raspberry Pi</title>
+            <desc id="da-d">The LoRa mesh reaches a radio HAT on the Raspberry Pi. ZephCore drives the HAT over SPI and serves the companion protocol on port 5000 on the Pi itself. MeshHome connects to it, stores messages in PostgreSQL, and serves browsers on the home network, optionally through nginx with HTTPS.</desc>
+            <defs>
+              <marker id="ma-lan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="m-lan"/></marker>
+              <marker id="ma-int" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="m-int"/></marker>
+            </defs>
+            <!-- mesh -->
+            <path class="d-lora" d="M58 150L112 108M58 150L100 210M100 210L40 238"/>
+            <circle class="d-node-ring" cx="112" cy="108" r="14"/>
+            <circle class="d-node" cx="58" cy="150" r="7"/><circle class="d-node" cx="112" cy="108" r="7"/>
+            <circle class="d-node" cx="100" cy="210" r="7"/><circle class="d-node" cx="40" cy="238" r="7"/>
+            <text class="d-title" x="24" y="300">LoRa mesh</text>
+            <text class="d-sub" x="24" y="320">radios and</text>
+            <text class="d-sub" x="24" y="336">repeaters</text>
+            <path class="d-lora" d="M112 108C180 50 260 40 316 42"/>
+            <!-- host -->
+            <rect class="d-host" x="170" y="70" width="480" height="290" rx="14"/>
+            <text class="d-label" x="190" y="342">RASPBERRY PI 4 OR 5</text>
+            <line class="d-antenna" x1="322" y1="112" x2="322" y2="42"/>
+            <rect class="d-box" x="190" y="112" width="150" height="78" rx="8"/>
+            <text class="d-title" x="206" y="140">Radio HAT</text>
+            <text class="d-sub" x="206" y="162">RAK6421 +</text>
+            <text class="d-sub" x="206" y="178">RAK13300 LoRa</text>
+            <path class="d-int" d="M265 190V230" marker-end="url(#ma-int)"/>
+            <text class="d-edge-label" x="275" y="215">SPI</text>
+            <rect class="d-box" x="190" y="232" width="150" height="78" rx="8"/>
+            <text class="d-title" x="206" y="260">ZephCore</text>
+            <text class="d-sub" x="206" y="282">radio service</text>
+            <text class="d-sub" x="206" y="298">on port 5000</text>
+            <path class="d-int" d="M340 271H360V171H378" marker-end="url(#ma-int)" marker-start="url(#ma-int)"/>
+            <rect class="d-main" x="380" y="112" width="140" height="118" rx="10"/>
+            <text class="d-title" x="396" y="140">MeshHome</text>
+            <text class="d-sub" x="396" y="162">inbox and API</text>
+            <text class="d-sub" x="396" y="180">bot and apps</text>
+            <text class="d-sub" x="396" y="198">message archive</text>
+            <path class="d-int" d="M450 230V252" marker-end="url(#ma-int)" marker-start="url(#ma-int)"/>
+            <rect class="d-box" x="380" y="254" width="140" height="58" rx="8"/>
+            <text class="d-title" x="396" y="280">PostgreSQL</text>
+            <text class="d-sub" x="396" y="298">your archive</text>
+            <path class="d-int" d="M520 171H543" marker-end="url(#ma-int)" marker-start="url(#ma-int)"/>
+            <rect class="d-box" x="545" y="112" width="90" height="118" rx="8"/>
+            <text class="d-title" x="558" y="140">nginx</text>
+            <text class="d-sub" x="558" y="162">HTTPS,</text>
+            <text class="d-sub" x="558" y="178">optional</text>
+            <!-- devices -->
+            <path class="d-lan" d="M635 171H674" marker-end="url(#ma-lan)"/>
+            <text class="d-edge-label" x="653" y="160">LAN</text>
+            <rect class="d-device" x="690" y="120" width="96" height="62" rx="5"/>
+            <rect class="d-screen" x="697" y="127" width="82" height="48" rx="2"/>
+            <path class="d-device" d="M678 186h120l-8 10H686z"/>
+            <rect class="d-device" x="718" y="214" width="42" height="74" rx="7"/>
+            <rect class="d-screen" x="723" y="223" width="32" height="54" rx="2"/>
+            <text class="d-title" x="676" y="322">Your devices</text>
+            <text class="d-sub" x="676" y="340">phone, tablet, PC</text>
+          </svg>
+        </div>
+        <div class="arch-notes">
+          <div>
+            <h4>Good for</h4>
+            <ul>
+              <li>A first MeshHome, with one device to set up</li>
+              <li>A tidy box on a shelf, with the antenna by a window</li>
+            </ul>
+          </div>
+          <div>
+            <h4>You need</h4>
+            <ul>
+              <li>A Raspberry Pi 4 or 5 with 64-bit Raspberry Pi OS</li>
+              <li>A RAK6421 HAT with a RAK13300 LoRa module, and an antenna</li>
+              <li>The <a href="https://github.com/roach0816/MeshHome/blob/main/docs/install-native.md">native installer</a>, which sets up the HAT</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- B: radio over TCP -->
+      <article class="arch-item">
+        <header>
+          <h3>Networked: a radio over TCP, MeshHome anywhere</h3>
+          <p>A companion radio with Ethernet or Wi-Fi sits where reception is best, such as the attic or a mast on PoE. MeshHome runs on a Pi, a Debian machine, Docker or Kubernetes, and connects to it over the network.</p>
+        </header>
+        <div class="diagram">
+          <svg viewBox="0 0 820 380" role="img" aria-labelledby="db-t db-d">
+            <title id="db-t">Radio on the network, MeshHome on a server or container</title>
+            <desc id="db-d">The LoRa mesh reaches a companion radio with Ethernet or Wi-Fi. MeshHome, running on a Raspberry Pi, Debian, Docker or Kubernetes, connects to the radio over TCP port 5000 on the home network, stores messages in PostgreSQL, and serves browsers on the home network.</desc>
+            <defs>
+              <marker id="mb-lan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="m-lan"/></marker>
+              <marker id="mb-int" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="m-int"/></marker>
+            </defs>
+            <!-- mesh -->
+            <path class="d-lora" d="M58 150L112 108M58 150L100 210M100 210L40 238"/>
+            <circle class="d-node-ring" cx="112" cy="108" r="14"/>
+            <circle class="d-node" cx="58" cy="150" r="7"/><circle class="d-node" cx="112" cy="108" r="7"/>
+            <circle class="d-node" cx="100" cy="210" r="7"/><circle class="d-node" cx="40" cy="238" r="7"/>
+            <text class="d-title" x="24" y="300">LoRa mesh</text>
+            <text class="d-sub" x="24" y="320">radios and</text>
+            <text class="d-sub" x="24" y="336">repeaters</text>
+            <path class="d-lora" d="M112 108C180 50 250 40 312 42"/>
+            <!-- radio -->
+            <line class="d-antenna" x1="318" y1="112" x2="318" y2="42"/>
+            <rect class="d-box" x="170" y="112" width="170" height="118" rx="8"/>
+            <text class="d-title" x="186" y="140">Companion radio</text>
+            <text class="d-sub" x="186" y="162">ThinkNode M7, or</text>
+            <text class="d-sub" x="186" y="178">RAK4631 + Ethernet</text>
+            <text class="d-sub" x="186" y="206">PoE: mount it high</text>
+            <!-- network link -->
+            <path class="d-lan" d="M340 171H428" marker-end="url(#mb-lan)" marker-start="url(#mb-lan)"/>
+            <text class="d-edge-label" x="350" y="160">TCP :5000</text>
+            <text class="d-edge-label" x="350" y="192">Ethernet</text>
+            <text class="d-edge-label" x="350" y="208">or Wi-Fi</text>
+            <!-- host -->
+            <rect class="d-host" x="430" y="70" width="230" height="290" rx="14"/>
+            <rect class="d-main" x="450" y="100" width="190" height="110" rx="10"/>
+            <text class="d-title" x="466" y="128">MeshHome</text>
+            <text class="d-sub" x="466" y="150">inbox, API, bot</text>
+            <text class="d-sub" x="466" y="168">message archive</text>
+            <text class="d-sub" x="466" y="186">connects to the radio</text>
+            <path class="d-int" d="M545 210V234" marker-end="url(#mb-int)" marker-start="url(#mb-int)"/>
+            <rect class="d-box" x="450" y="236" width="190" height="58" rx="8"/>
+            <text class="d-title" x="466" y="262">PostgreSQL</text>
+            <text class="d-sub" x="466" y="280">your archive</text>
+            <text class="d-label" x="450" y="326">RUNS ON</text>
+            <text class="d-label" x="450" y="344">PI · DEBIAN · DOCKER · K8S</text>
+            <!-- devices -->
+            <path class="d-lan" d="M660 155H674" marker-end="url(#mb-lan)"/>
+            <rect class="d-device" x="690" y="120" width="96" height="62" rx="5"/>
+            <rect class="d-screen" x="697" y="127" width="82" height="48" rx="2"/>
+            <path class="d-device" d="M678 186h120l-8 10H686z"/>
+            <rect class="d-device" x="718" y="214" width="42" height="74" rx="7"/>
+            <rect class="d-screen" x="723" y="223" width="32" height="54" rx="2"/>
+            <text class="d-title" x="676" y="322">Your devices</text>
+            <text class="d-sub" x="676" y="340">phone, tablet, PC</text>
+          </svg>
+        </div>
+        <div class="arch-notes">
+          <div>
+            <h4>Good for</h4>
+            <ul>
+              <li>Putting the radio high up, on one PoE cable, while the server stays indoors</li>
+              <li>Running MeshHome next to your other services in Docker or Kubernetes</li>
+            </ul>
+          </div>
+          <div>
+            <h4>You need</h4>
+            <ul>
+              <li>A MeshCore companion radio with Ethernet or Wi-Fi firmware (<a href="https://github.com/roach0816/MeshHome/blob/main/docs/radios.md">supported radios</a>)</li>
+              <li>A Pi, Debian machine, Docker host or Kubernetes cluster that can reach it</li>
+              <li>A firewall rule so only MeshHome can reach the radio's port</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ install ============ -->
+<section id="install">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Install</span>
+      <h2>Up and running in a few minutes.</h2>
+      <p>After installing, open MeshHome in a browser and a short wizard sets up your account and radio. No radio yet? Choose the simulated radio to look around.</p>
+    </div>
+    <div class="install">
+      <div class="card">
+        <span class="tag">Raspberry Pi or Debian</span>
+        <h3>Guided installer</h3>
+        <p>Shows every change before making it, and can set up HTTPS and a radio HAT.</p>
+<pre><code>curl -fsSLo install.sh \
+  https://github.com/roach0816/MeshHome/releases/latest/download/install.sh
+sudo bash install.sh</code></pre>
+        <a href="https://github.com/roach0816/MeshHome/blob/main/docs/install-native.md">Raspberry Pi guide</a>
+      </div>
+      <div class="card">
+        <span class="tag">Docker Compose</span>
+        <h3>One machine</h3>
+        <p>The app and its database, from the repository.</p>
+<pre><code>git clone https://github.com/roach0816/MeshHome.git
+cd MeshHome && cp .env.example .env
+docker compose up -d --build</code></pre>
+        <a href="https://github.com/roach0816/MeshHome#option-2-container">Container guide</a>
+      </div>
+      <div class="card">
+        <span class="tag">Kubernetes</span>
+        <h3>K3s with Fleet</h3>
+        <p>Multi-arch images for amd64 and arm64, sized for Raspberry Pi nodes, with health probes and a GitOps deployment.</p>
+        <a href="https://github.com/roach0816/MeshHome/blob/main/docs/install-kubernetes.md">Kubernetes guide</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ privacy summary ============ -->
+<section class="band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Private by design</span>
+      <h2>Your messages stay on your server.</h2>
+    </div>
+    <div class="trio">
+      <div>
+        <h3>No account, no cloud</h3>
+        <p>MeshHome runs on your hardware. Messages, contacts and settings live in your own database, and the project never receives them.</p>
+      </div>
+      <div>
+        <h3>No tracking</h3>
+        <p>MeshHome sends no usage data anywhere. The few outside services it uses, such as update checks, are listed and can be turned off.</p>
+      </div>
+      <div>
+        <h3>Encrypted backups</h3>
+        <p>Backups are always encrypted with your passphrase. Passwords are stored only as hashes, and API keys only as fingerprints.</p>
+      </div>
+    </div>
+    <p class="more"><a href="/privacy/">Read the privacy policy</a></p>
+  </div>
+</section>
+
+<!-- ============ closing ============ -->
+<section>
+  <div class="wrap closing">
+    <span class="eyebrow">Open source</span>
+    <h2>Free, MIT licensed, and built in the open.</h2>
+    <p class="lede">Read the code, follow releases, and tell us what works on your hardware.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="https://github.com/roach0816/MeshHome">MeshHome on GitHub</a>
+      <a class="btn" href="https://github.com/roach0816/MeshHome/releases">Releases</a>
+      <a class="btn" href="https://github.com/roach0816/MeshHome/issues">Report an issue</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <nav class="foot-links" aria-label="Footer">
+      <a href="https://github.com/roach0816/MeshHome">GitHub</a>
+      <a href="https://github.com/roach0816/MeshHome#documentation">Documentation</a>
+      <a href="https://github.com/roach0816/MeshHome-apps">App catalog</a>
+      <a href="https://github.com/roach0816/MeshHome/releases">Releases</a>
+      <a href="/privacy/">Privacy</a>
+    </nav>
+    <p>MeshHome is free software under the MIT License. It's an independent project, not made or endorsed by the MeshCore project; "MeshCore" is used only to say which radios and firmware it works with.</p>
+  </div>
+</footer>
+
+</body>
+</html>

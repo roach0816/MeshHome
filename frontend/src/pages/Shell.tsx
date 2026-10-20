@@ -122,7 +122,7 @@ export function Shell({ me }: { me: Me }) {
         )}
         aria-label="Conversations"
       >
-        <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+        <header className="pwa-top flex items-center gap-2 border-b border-line px-3 py-2">
           <div className="min-w-0 flex-1 pl-1">
             <h1 className="truncate text-base font-semibold">{me.home_name}</h1>
             <StatusPill status={status.data} socket={socket} />

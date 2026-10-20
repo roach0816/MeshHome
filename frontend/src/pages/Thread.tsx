@@ -191,7 +191,7 @@ function ThreadView({ conv, status }: { conv: Conversation; status?: Status }) {
   return (
     <div className="flex h-full">
       <section className="relative flex h-full min-w-0 flex-1 flex-col" aria-label={`Conversation: ${conv.title}`}>
-        <header className="flex items-center gap-1 border-b border-line bg-surface px-1.5 py-1.5 md:px-3">
+        <header className="pwa-top flex items-center gap-1 border-b border-line bg-surface px-1.5 py-1.5 md:px-3">
           <Link
             to="/"
             className="inline-flex size-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 md:hidden"
@@ -575,7 +575,7 @@ function Details({ conv, onClose }: { conv: Conversation; onClose: () => void })
       className="fixed inset-0 z-30 flex flex-col bg-surface lg:static lg:z-auto lg:w-80 lg:border-l lg:border-line"
       aria-label="Conversation details"
     >
-      <header className="flex items-center justify-between border-b border-line px-4 py-2">
+      <header className="pwa-top flex items-center justify-between border-b border-line px-4 py-2">
         <h3 className="text-sm font-semibold">Details</h3>
         <IconButton label="Close details" onClick={onClose}>
           <X className="size-5" />

@@ -280,7 +280,7 @@ export function RemoteManage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 md:px-4">
+      <header className="pwa-top flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 md:px-4">
         <Link to="/contacts" className="inline-flex size-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2" aria-label="Back to contacts">
           <ChevronLeft className="size-6" />
         </Link>

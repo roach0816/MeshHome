@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.2**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.3**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -708,7 +708,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

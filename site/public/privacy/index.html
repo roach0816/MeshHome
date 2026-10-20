@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Privacy · MeshHome</title>
+  <meta name="description" content="How meshhome.app and the MeshHome software handle your information.">
+  <meta name="theme-color" content="#f7f9f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1215" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://meshhome.app/privacy/">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="MeshHome home">
+      <svg viewBox="0 -48 440 376" aria-hidden="true">
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M40 300 L220 140 L400 300" stroke="var(--ink)" stroke-width="40"/>
+          <g stroke="var(--teal)" stroke-width="32">
+            <path d="M150 80 a100 100 0 0 1 140 0"/>
+            <path d="M95 30 a175 175 0 0 1 250 0" opacity=".55"/>
+          </g>
+          <circle cx="220" cy="140" r="34" fill="var(--teal)" stroke="none"/>
+        </g>
+      </svg>
+      <span>Mesh<b>Home</b></span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="/#features">Features</a>
+      <a href="/#how-it-works" class="hide-sm">How it works</a>
+      <a href="/#setups">Setups</a>
+      <a href="/#install">Install</a>
+      <a href="/privacy/" aria-current="page">Privacy</a>
+      <a class="gh" href="https://github.com/roach0816/MeshHome">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <article class="prose">
+    <span class="eyebrow">Privacy</span>
+    <h1>Privacy policy</h1>
+    <p class="updated">Last updated October 19, 2026</p>
+
+    <div class="summary">
+      <p><strong>In short:</strong> this website has no accounts, forms, cookies, analytics or tracking. MeshHome is software you run on your own hardware, and your messages and settings stay there. The project doesn't collect any of your data.</p>
+    </div>
+
+    <h2>This website</h2>
+    <p>meshhome.app is a set of static pages about MeshHome. It doesn't set cookies, doesn't use analytics or advertising, has no forms, and loads everything (including its fonts) from meshhome.app itself.</p>
+    <p>The site is hosted by <a href="https://www.cloudflare.com/">Cloudflare</a>. Like any web host, Cloudflare processes the technical details of each request, such as your IP address, browser and the page you asked for, to deliver the site and protect it from abuse. Its handling of that information is described in <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare's privacy policy</a>. The site's owner can see aggregate traffic figures, such as the number of requests, but doesn't use them to identify visitors.</p>
+    <p>Links to GitHub take you to GitHub, where <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a> applies.</p>
+
+    <h2>The MeshHome software</h2>
+    <p>MeshHome is self-hosted: you install it on your own Raspberry Pi, computer or cluster. Everything it stores (messages, contacts, settings, accounts and keys) is kept in your own database. There's no MeshHome account or cloud service, and the software sends no usage statistics or telemetry to the project or anyone else.</p>
+    <p>To do its job, MeshHome makes a few connections from your server. Each is documented under <a href="https://github.com/roach0816/MeshHome/blob/main/docs/configuration.md#outbound-connections">outbound connections</a>, and most can be turned off:</p>
+    <ul>
+      <li><strong>GitHub</strong>, every few hours, to check for new MeshHome releases and MeshCore firmware releases, and to read the bot app catalog.</li>
+      <li><strong>MeshCore's server</strong>, once a day, for the list of radio region presets.</li>
+      <li><strong>OpenStreetMap Nominatim</strong>, when you open a node's details, to name the town at its advertised position. Only those coordinates are sent. You can turn this off in Settings.</li>
+      <li><strong>Your browser's push service</strong> (for example Apple's, Google's or Mozilla's), only if you turn on notifications. Each notification is encrypted for your device, so the push service sees only its time and size.</li>
+      <li><strong>Let's Encrypt and your DNS provider</strong>, only on Raspberry Pi installs with HTTPS turned on, to get and renew the certificate.</li>
+      <li><strong>Hosts named by bot apps you install</strong>, such as a weather station on your own network. MeshHome shows what an app contacts before you install it.</li>
+    </ul>
+    <p>The map in MeshHome loads tiles from OpenStreetMap by default, directly from your browser. The tile server sees your IP address and which map areas you view; no message content, names or keys are sent. You can point MeshHome at your own tile server instead.</p>
+
+    <h2>Messages over the radio</h2>
+    <p>MeshCore radios send messages over the air, where anyone nearby with a radio can receive the signal. MeshHome doesn't change how MeshCore protects messages:</p>
+    <ul>
+      <li>Direct messages and private channels are encrypted by MeshCore, and only radios with the right keys can read them.</li>
+      <li>The Public channel and hashtag channels use keys anyone can know, so treat them as public.</li>
+      <li>Your radio's adverts share its name, and its position if you choose to share it.</li>
+    </ul>
+
+    <h2>GitHub</h2>
+    <p>MeshHome's code, documentation and releases are on <a href="https://github.com/roach0816/MeshHome">GitHub</a>. Issues and discussions there are public, so don't include passwords, keys, addresses or private messages when you report a problem.</p>
+
+    <h2>Changes and questions</h2>
+    <p>If this policy changes, the date at the top changes too, and the history of this page is visible in the project's repository. For questions, <a href="https://github.com/roach0816/MeshHome/issues">open an issue on GitHub</a>.</p>
+  </article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <nav class="foot-links" aria-label="Footer">
+      <a href="https://github.com/roach0816/MeshHome">GitHub</a>
+      <a href="https://github.com/roach0816/MeshHome#documentation">Documentation</a>
+      <a href="https://github.com/roach0816/MeshHome-apps">App catalog</a>
+      <a href="https://github.com/roach0816/MeshHome/releases">Releases</a>
+      <a href="/privacy/">Privacy</a>
+    </nav>
+    <p>MeshHome is free software under the MIT License. It's an independent project, not made or endorsed by the MeshCore project; "MeshCore" is used only to say which radios and firmware it works with.</p>
+  </div>
+</footer>
+
+</body>
+</html>
