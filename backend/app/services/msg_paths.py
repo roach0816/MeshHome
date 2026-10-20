@@ -75,6 +75,15 @@ class PathTracker:
     ) -> tuple[str | None, list[dict[str, Any]]]:
         """Paths for a message that just arrived: (packet key, path entries). Call follow() with
         the key once the message is stored, so later copies are attached to it."""
+        key, entries, _ = self.claim_packet(
+            channel_hash=channel_hash, sender_hash=sender_hash, self_hash=self_hash
+        )
+        return key, entries
+
+    def claim_packet(
+        self, *, channel_hash: int | None = None, sender_hash: int | None = None, self_hash: int | None = None
+    ) -> tuple[str | None, list[dict[str, Any]], Packet | None]:
+        """claim(), plus the packet that carried the message."""
         now = self.clock()
         self._expire(now)
 
@@ -94,11 +103,11 @@ class PathTracker:
 
         found = next((h for h in reversed(self._recent) if matches(h)), None)
         if found is None:
-            return None, []
+            return None, [], None
         copies = [h for h in self._recent if h.packet.key == found.packet.key]
         for h in copies:
             self._recent.remove(h)
-        return found.packet.key, [path_entry(h) for h in copies[:MAX_PATHS]]
+        return found.packet.key, [path_entry(h) for h in copies[:MAX_PATHS]], found.packet
 
     def follow(self, key: str, message_id: Any, count: int) -> None:
         self._following[key] = (message_id, self.clock() + FOLLOW_SECONDS, count)

@@ -15,6 +15,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -27,7 +28,7 @@ from app.radio.base import IncomingMessage, RadioAdapter, RadioChannel, RadioErr
 from app.radio.meshcore_tcp import MeshCoreTcpRadio
 from app.radio.simulated import SimulatedRadio
 from app.realtime import hub
-from app.services import app_settings, bot, messaging, radio_hat, web_push
+from app.services import app_settings, bot, messaging, radio_hat, signed_messages, web_push
 from app.services.messaging import States
 from app.services.msg_paths import PathTracker
 
@@ -85,7 +86,10 @@ class RadioSupervisor:
         self._bot_tasks: set[asyncio.Task] = set()
         # Message paths from the radio's raw packet log (see services/msg_paths.py).
         self._paths = PathTracker()
-        self._channel_hashes: dict[int, int] = {}  # slot -> 1-byte channel hash (never the key)
+        self._channel_hashes: dict[int, int] = {}  # slot -> 1-byte channel hash
+        # slot -> channel key, in memory only: to open the packet of a channel message, whose
+        # signature (if any) the radio's text frame leaves out. Never stored or logged.
+        self._channel_keys: dict[int, bytes] = {}
         self._stopping = False
 
     # ---- lifecycle -------------------------------------------------------------------
@@ -458,6 +462,7 @@ class RadioSupervisor:
 
     def _remember_channels(self, channels: list[RadioChannel]) -> None:
         self._channel_hashes = {c.slot: packets.channel_hash(c.secret) for c in channels if c.secret}
+        self._channel_keys = {c.slot: c.secret for c in channels if c.secret and any(c.secret)}
 
     async def _on_rx_packet(self, raw: bytes, snr: float | None, rssi: float | None) -> None:
         packet = packets.parse(raw)
@@ -483,7 +488,11 @@ class RadioSupervisor:
         """Attach the routes this message was heard on (msg.meta["paths"]); returns the packet key."""
         own = self._radio.public_key if self._radio else ""
         if msg.kind == "channel" and msg.channel_slot is not None:
-            key, entries = self._paths.claim(channel_hash=self._channel_hashes.get(int(msg.channel_slot)))
+            slot = int(msg.channel_slot)
+            key, entries, packet = self._paths.claim_packet(channel_hash=self._channel_hashes.get(slot))
+            signed = self._signature_of(packet, slot, msg) if packet is not None else None
+            if signed:
+                msg.meta = {**(msg.meta or {}), "signed": signed}
         elif msg.kind == "dm" and msg.pubkey_prefix:
             key, entries = self._paths.claim(
                 sender_hash=int(msg.pubkey_prefix[:2], 16), self_hash=int(own[:2], 16) if own else None
@@ -493,6 +502,28 @@ class RadioSupervisor:
         if entries:
             msg.meta = {**(msg.meta or {}), "paths": entries}
         return key
+
+    def _signature_of(self, packet: packets.Packet, slot: int, msg: IncomingMessage) -> dict[str, Any] | None:
+        """The signature after a channel message's text (services/signed_messages.py), read from
+        the packet that carried it, if that packet decrypts to this very message."""
+        secret = self._channel_keys.get(slot)
+        plain = packets.decrypt_group(secret, packet.payload) if secret else None
+        ending = signed_messages.parse(plain) if plain else None
+        if ending is None:
+            return None
+        sent = f"{msg.sender_label}: {msg.text}" if msg.sender_label else msg.text
+        if ending.text != sent.encode() or (
+            msg.sender_timestamp and ending.timestamp != msg.sender_timestamp
+        ):
+            return None
+        return {
+            "v": 1,
+            "key_id": ending.key_id.hex(),
+            "signature": ending.signature.hex(),
+            # What was decrypted (without the block padding): kept so the signature can be checked
+            # later against the sender's key, once it's known.
+            "plaintext": plain[: 5 + len(ending.text) + 1 + signed_messages.ENDING_SIZE].hex(),
+        }
 
     async def _persist_incoming(self, msg: IncomingMessage) -> None:
         if msg.kind == "dm" and msg.txt_type == TXT_CLI_DATA and msg.pubkey_prefix and self.cli_reply_hook:

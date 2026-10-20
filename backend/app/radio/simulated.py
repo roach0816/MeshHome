@@ -455,21 +455,30 @@ class SimulatedRadio(RadioAdapter):
 
     # ---- simulation helpers -------------------------------------------------
 
-    def inject(self, msg: IncomingMessage) -> None:
+    def inject(self, msg: IncomingMessage, after_text: bytes = b"") -> None:
+        """Receive a message. `after_text`: bytes the sender put after a channel message's text
+        (such as a signature), which the radio's text frame leaves out."""
         if self.on_rx_packet and msg.txt_type == 0 and (msg.kind == "channel" or msg.pubkey_prefix):
             # Like a real radio: the packet is logged as heard first, then the message is handed over.
-            self._spawn(self._heard_then_queue(msg))
+            self._spawn(self._heard_then_queue(msg, after_text))
             return
         self._queue.append(msg)
         if self.on_messages_waiting:
             self._spawn(self.on_messages_waiting())
 
-    async def _heard_then_queue(self, msg: IncomingMessage) -> None:
+    async def _heard_then_queue(self, msg: IncomingMessage, after_text: bytes = b"") -> None:
         roof, hill = bytes.fromhex(_key("roof")[:2]), bytes.fromhex(_key("hilltop")[:2])
         if msg.kind == "channel":
             ch = sim_state()["channels"].get(int(msg.channel_slot or 0))
-            first = packets.channel_hash(ch[1]) if ch else 0
-            ptype, payload = packets.TYPE_GRP_TXT, bytes([first]) + self._rng.randbytes(18)
+            ptype = packets.TYPE_GRP_TXT
+            if ch and any(ch[1]):
+                # The packet a real sender would send: [timestamp][flags]["name: text"], encrypted.
+                sent = f"{msg.sender_label}: {msg.text}" if msg.sender_label else msg.text
+                ts = (msg.sender_timestamp or int(time.time())).to_bytes(4, "little")
+                plain = ts + b"\0" + sent.encode() + (b"\0" + after_text if after_text else b"")
+                payload = packets.encrypt_group(ch[1], plain)
+            else:
+                payload = bytes([packets.channel_hash(ch[1]) if ch else 0]) + self._rng.randbytes(18)
         else:
             ptype = packets.TYPE_TXT_MSG
             payload = bytes(

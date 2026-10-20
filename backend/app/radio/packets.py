@@ -11,13 +11,18 @@ Layout (MeshCore src/Packet.cpp, Packet::readFrom):
 
 Copies of one packet heard through different repeaters share payload type and payload, which is
 what MeshCore's packet hash covers (Packet::calculatePacketHash), so ``key`` groups them.
-Only headers and routing are read here; nothing is decrypted.
+Only headers and routing are read here, except decrypt_group(), which opens a channel message
+with that channel's key (used to read what the radio's text frame leaves out, such as a signature
+after the text).
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 from dataclasses import dataclass
+
+from Crypto.Cipher import AES
 
 ROUTE_TRANSPORT_FLOOD, ROUTE_FLOOD, ROUTE_DIRECT, ROUTE_TRANSPORT_DIRECT = 0, 1, 2, 3
 TYPE_TXT_MSG = 0x02
@@ -86,3 +91,31 @@ def channel_hash(secret: bytes) -> int:
     BaseChatMesh: 16-byte keys hash their 16 bytes, 32-byte keys all 32)."""
     key = secret[:16] if len(secret) <= 16 or not any(secret[16:32]) else secret[:32]
     return hashlib.sha256(key).digest()[0]
+
+
+MAC_SIZE = 2  # MeshCore CIPHER_MAC_SIZE
+
+
+def decrypt_group(secret: bytes, payload: bytes) -> bytes | None:
+    """The plaintext of a GRP_TXT/GRP_DATA payload (channel hash, MAC, ciphertext), or None if it
+    isn't for this key. MeshCore Utils::MACThenDecrypt: a 2-byte HMAC-SHA256 over the ciphertext,
+    keyed with the secret zero-padded to 32 bytes, then AES-128-ECB with its first 16 bytes. The
+    plaintext keeps the zero padding up to the 16-byte block."""
+    if len(secret) < 16 or len(payload) < 1 + MAC_SIZE + 16 or payload[0] != channel_hash(secret):
+        return None
+    mac, ct = payload[1 : 1 + MAC_SIZE], payload[1 + MAC_SIZE :]
+    if len(ct) % 16:
+        return None
+    key = secret[:32].ljust(32, b"\0")
+    if not hmac.compare_digest(hmac.new(key, ct, hashlib.sha256).digest()[:MAC_SIZE], mac):
+        return None
+    return AES.new(secret[:16], AES.MODE_ECB).decrypt(ct)
+
+
+def encrypt_group(secret: bytes, plaintext: bytes) -> bytes:
+    """The GRP_TXT payload for a plaintext (the simulated radio and tests): the inverse of
+    decrypt_group, zero-padding to the block as MeshCore does."""
+    padded = plaintext + b"\0" * (-len(plaintext) % 16)
+    ct = AES.new(secret[:16], AES.MODE_ECB).encrypt(padded)
+    mac = hmac.new(secret[:32].ljust(32, b"\0"), ct, hashlib.sha256).digest()[:MAC_SIZE]
+    return bytes([channel_hash(secret)]) + mac + ct
