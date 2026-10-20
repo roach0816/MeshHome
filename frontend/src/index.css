@@ -81,6 +81,16 @@ body {
   height: 100dvh;
 }
 
+/* The app fills the screen exactly and scrolls inside its panels. Lock the page itself, so a swipe
+   on a screen with nothing to scroll doesn't stretch and bounce the whole app, top and bottom bars
+   included (iOS rubber-banding). Login and setup scroll the page normally, so only while the app
+   shell is shown. */
+html:has(.app-shell),
+html:has(.app-shell) body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .safe-bottom {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }

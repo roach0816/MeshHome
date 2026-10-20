@@ -113,7 +113,7 @@ export function Shell({ me }: { me: Me }) {
   }, [pathname]);
 
   return (
-    <div className="app-height flex overflow-hidden bg-bg">
+    <div className="app-shell app-height flex overflow-hidden bg-bg">
       <aside
         className={cx(
           "flex h-full w-full flex-col border-line bg-surface md:w-80 md:border-r lg:w-96",
