@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.7**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.8**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -562,6 +562,7 @@ These act on the radio itself; it must be connected and the contact must still b
 | `GET /api/contacts/{id}/export` | A `meshcore://` contact card: `{"uri": "meshcore://…"}` (read). |
 | `PUT /api/contacts/{id}/path` | Set a fixed route: `{"hops": ["a1", "b2"]}`; `[]` means direct. `204`. |
 | `POST /api/contacts/{id}/reset-path` | Forget the route (back to flood). `204`. |
+| `POST /api/radio/trace` | Trace a route of repeaters: `{"hops": ["<key or prefix>", …]}` (1–8, in order from this radio). The probe goes out along them and back the same way. Returns `{"hops": [{"hash": "…", "snr": 6.25, "names": ["Hilltop"]}, …], "final_snr": 9.5, "elapsed_ms": 980}`, each repeater out and back with the SNR it heard; `504` if it didn't come back. |
 | `DELETE /api/contacts/{id}` | Remove the contact from the radio. The archive keeps it and its messages. `204`. |
 | `POST /api/contacts/import` | Add a contact the radio hasn't heard an advert from: `{"uri": "meshcore://contact/add?name=…&public_key=…&type=1"}` (a [MeshCore contact QR code](https://docs.meshcore.io/qr_codes/)), or `{"public_key": "<64 hex>", "name": "…", "kind": 1}`. Returns `{"contact": {...}, "added": true}`; `added: false` if it was already a contact (left unchanged). Names are at most 31 bytes. |
 
@@ -742,7 +743,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

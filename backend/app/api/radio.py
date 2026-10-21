@@ -12,6 +12,7 @@ from app.api.deps import AuthContext, is_https, require_auth, require_session
 from app.config import APP_VERSION, get_settings
 from app.db import get_db
 from app.models import AuditEvent, Channel, CollectionGap, Contact, Message, Radio
+from app.radio.base import NotSupported, RadioError
 from app.radio.supervisor import supervisor
 from app.realtime import hub
 from app.services import app_settings, radio_hat
@@ -249,3 +250,71 @@ async def put_bot(
     await db.commit()
     hub.publish("settings-updated", key="bot")
     return body
+
+
+class TraceIn(BaseModel):
+    # Repeaters in order from this radio, as public keys or key prefixes (hex). The trace goes out
+    # along them and comes back the same way.
+    hops: list[str] = Field(min_length=1, max_length=8)
+
+
+class TraceHop(BaseModel):
+    hash: str
+    snr: float | None
+    names: list[str]  # contacts whose key starts with the hash
+
+
+class TraceOut(BaseModel):
+    hops: list[TraceHop]  # each repeater on the way out and back, with the SNR it heard
+    final_snr: float | None  # the last repeater, as heard back by this radio
+    elapsed_ms: int
+
+
+@router.post("/radio/trace", response_model=TraceOut)
+async def trace_route(
+    body: TraceIn, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
+):
+    """Send a trace probe along a route of repeaters and back: the signal each one heard, and how
+    long the round trip took. Nothing is stored; the probe is a single small packet each way."""
+    hops = [h.strip().lower() for h in body.hops]
+    if any(not h or len(h) % 2 or any(c not in "0123456789abcdef" for c in h) for h in hops):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Each hop must be a hex key or key prefix")
+    # The longest hash every hop allows (1, 2 or 4 bytes): longer is less likely to match a second repeater.
+    size = max(s for s in (1, 2, 4) if all(len(h) >= s * 2 for h in hops))
+    if size == 1 and min(len(h) for h in hops) < 2:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Each hop must be at least 2 hex characters"
+        )
+    try:
+        result = await supervisor.trace([bytes.fromhex(h[: size * 2]) for h in hops])
+    except NotSupported as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except TimeoutError:
+        raise HTTPException(
+            status.HTTP_504_GATEWAY_TIMEOUT,
+            "The trace didn't come back. A repeater on the route may be out of range of the next, or not relaying.",
+        ) from None
+    except RadioError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Could not send the trace: {exc}") from exc
+    radio = supervisor.radio
+    contacts = (
+        (
+            await db.execute(
+                select(Contact.public_key, Contact.alias, Contact.name).where(Contact.radio_id == radio.id)
+            )
+        ).all()
+        if radio
+        else []
+    )
+    path = result.get("path") or []
+    out = [
+        TraceHop(
+            hash=p["hash"],
+            snr=p.get("snr"),
+            names=[a or n for k, a, n in contacts if k.startswith(p["hash"])][:3],
+        )
+        for p in path
+        if "hash" in p
+    ]
+    final = next((p.get("snr") for p in reversed(path) if "hash" not in p), None)
+    return TraceOut(hops=out, final_snr=final, elapsed_ms=result["elapsed_ms"])

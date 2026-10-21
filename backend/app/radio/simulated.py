@@ -11,6 +11,7 @@ import logging
 import random
 import time
 from collections import deque
+from typing import Any
 
 from app.radio import identity, packets, sim_repeater
 from app.radio.base import (
@@ -394,6 +395,23 @@ class SimulatedRadio(RadioAdapter):
         if c is None:
             raise RadioError("no simulated repeater with that key")
         return sim_repeater.repeater(c.public_key, c.name, c.lat, c.lon)
+
+    async def trace_send(self, path: bytes, flags: int) -> RemoteTicket:
+        self._require()
+        size = 1 << (flags & 3)
+        hops = [path[i : i + size] for i in range(0, len(path), size)]
+        repeaters = [c.public_key for c in SIM_CONTACTS if c.kind == 2]
+        # The simulated repeaters relay a trace; any other hop means it never comes back.
+        ok = bool(hops) and all(any(k.startswith(h.hex()) for k in repeaters) for h in hops)
+        return RemoteTicket(kind="trace", public_key="", timeout=5.0, handle=(hops, ok))
+
+    async def trace_wait(self, ticket: RemoteTicket, timeout: float) -> dict[str, Any]:
+        hops, ok = ticket.handle
+        await asyncio.sleep(min(timeout, 0.25 * len(hops) + 0.2))
+        if not ok:
+            raise TimeoutError
+        snr = lambda: round(self._rng.uniform(-6, 11) * 4) / 4  # noqa: E731 - quarter-dB, like the radio
+        return {"path": [{"hash": h.hex(), "snr": snr()} for h in hops] + [{"snr": snr()}]}
 
     async def remote_send(self, public_key: str, kind: str, arg: str | None = None) -> RemoteTicket:
         self._require()

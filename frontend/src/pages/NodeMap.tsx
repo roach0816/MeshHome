@@ -9,14 +9,14 @@ import { Button } from "../components/ui";
 import { cx, formatDateTime } from "../lib/util";
 
 // MeshCore advert types. Colours are chosen to stay distinguishable on light and dark tiles.
-const KINDS: Record<number, { label: string; color: string; glyph: string }> = {
+export const KINDS: Record<number, { label: string; color: string; glyph: string }> = {
   1: { label: "Companions", color: "#2563eb", glyph: "C" },
   2: { label: "Repeaters", color: "#d97706", glyph: "R" },
   3: { label: "Room servers", color: "#7c3aed", glyph: "S" },
   4: { label: "Sensors", color: "#0891b2", glyph: "W" },
 };
 const OTHER = { label: "Other", color: "#64748b", glyph: "?" };
-const GATEWAY_COLOR = "#0f766e";
+export const GATEWAY_COLOR = "#0f766e";
 const kindOf = (k: number) => KINDS[k] ?? OTHER;
 
 type Age = "all" | "1d" | "7d" | "30d";
@@ -27,7 +27,7 @@ function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-function markerIcon(color: string, glyph: string, opts: { gateway?: boolean; stale?: boolean } = {}) {
+export function markerIcon(color: string, glyph: string, opts: { gateway?: boolean; stale?: boolean } = {}) {
   const size = opts.gateway ? 30 : 24;
   // Only constant values are interpolated here; node names never enter HTML strings.
   return L.divIcon({

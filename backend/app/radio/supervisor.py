@@ -445,6 +445,20 @@ class RadioSupervisor:
             raise RadioError("radio is not connected")
         return await adapter.remote_wait(ticket, timeout)
 
+    async def trace(self, hops: list[bytes]) -> dict[str, Any]:
+        """Trace a route of repeaters: out along `hops` and back the same way, so the probe
+        returns to this radio. Returns the radio's result plus the round-trip time."""
+        adapter = self._adapter
+        if adapter is None or not self.connected:
+            raise RadioError("radio is not connected")
+        size = len(hops[0])
+        flags = {1: 0, 2: 1, 4: 2, 8: 3}[size]
+        route = [*hops, *hops[-2::-1]]
+        started = time.monotonic()
+        ticket = await self._cmd(adapter.trace_send, b"".join(route), flags, timeout=20)
+        result = await adapter.trace_wait(ticket, min(60.0, max(10.0, ticket.timeout)))
+        return {**result, "elapsed_ms": round((time.monotonic() - started) * 1000)}
+
     # ---- receive ---------------------------------------------------------------------
 
     async def _on_waiting(self) -> None:

@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import {
   IdCard,
+  Map as MapIcon,
   Plus,
   ArrowDown,
   ArrowUp,
@@ -28,6 +29,9 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Dialog } from "../components/Dialog";
 import { useContextTrigger } from "../components/useContextTrigger";
 import { AddContactDialog, MyContactDialog } from "../components/SignedMessages";
+
+// The map (Leaflet) loads only when the route picker is opened.
+const MapRoute = lazy(() => import("../components/MapRoute").then((m) => ({ default: m.MapRoute })));
 import { canCopy, cx, formatDateTime, sameDay } from "../lib/util";
 
 // MeshCore advert types.
@@ -652,6 +656,7 @@ function PathDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
   const [hops, setHops] = useState<string[]>([]);
   const [pick, setPick] = useState("");
   const [manual, setManual] = useState("");
+  const [onMap, setOnMap] = useState(false);
   useEffect(() => {
     if (d.data) setHops(d.data.path_hops);
   }, [d.data]);
@@ -706,6 +711,22 @@ function PathDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
           ))}
           {hops.length === 0 && <li className="rounded-lg border border-dashed border-line px-3 py-2 text-muted">Direct — no repeaters</li>}
         </ol>
+        <Button onClick={() => setOnMap(true)}>
+          <MapIcon className="size-4" aria-hidden /> Pick on the map and test it…
+        </Button>
+        {onMap && (
+          <Suspense fallback={null}>
+            <MapRoute
+              targetKey={c.public_key}
+              targetName={c.alias || c.name}
+              onClose={() => setOnMap(false)}
+              onUse={(keys) => {
+                setHops(keys.map((k) => k.slice(0, size * 2)));
+                setOnMap(false);
+              }}
+            />
+          </Suspense>
+        )}
         <div className="flex gap-2">
           <select
             aria-label="Repeater to add"

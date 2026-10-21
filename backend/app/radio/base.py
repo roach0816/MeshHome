@@ -223,6 +223,16 @@ class RadioAdapter(ABC):
     async def remote_wait(self, ticket: RemoteTicket, timeout: float) -> Any:
         raise NotSupported("this radio does not support remote administration")
 
+    async def trace_send(self, path: bytes, flags: int) -> RemoteTicket:
+        """Send a trace probe along `path` (repeater key prefixes, each 1 << (flags & 3) bytes).
+        Each repeater adds the SNR it heard; it comes back to this radio if the path returns."""
+        raise NotSupported("this radio connection can't send a trace")
+
+    async def trace_wait(self, ticket: RemoteTicket, timeout: float) -> dict[str, Any]:
+        """The trace result: {"path": [{"hash", "snr"}, ..., {"snr": last hop -> this radio}]}.
+        TimeoutError if it doesn't come back."""
+        raise NotSupported("this radio connection can't send a trace")
+
 
 MAX_PATH_BYTES = 64  # firmware out_path buffer
 # A contact as the companion protocol stores it (meshcore's contact dict, without its cache fields).

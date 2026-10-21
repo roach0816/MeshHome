@@ -1985,6 +1985,48 @@
         }
       }
     },
+    "/api/radio/trace": {
+      "post": {
+        "tags": [
+          "radio"
+        ],
+        "summary": "Trace Route",
+        "description": "Send a trace probe along a route of repeaters and back: the signal each one heard, and how\nlong the round trip took. Nothing is stored; the probe is a single small packet each way.",
+        "operationId": "trace_route_api_radio_trace_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TraceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/map": {
       "get": {
         "tags": [
@@ -7554,6 +7596,90 @@
           "error"
         ],
         "title": "TestResult"
+      },
+      "TraceHop": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash",
+          "snr",
+          "names"
+        ],
+        "title": "TraceHop"
+      },
+      "TraceIn": {
+        "properties": {
+          "hops": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Hops"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hops"
+        ],
+        "title": "TraceIn"
+      },
+      "TraceOut": {
+        "properties": {
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/TraceHop"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "final_snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Snr"
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "title": "Elapsed Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hops",
+          "final_snr",
+          "elapsed_ms"
+        ],
+        "title": "TraceOut"
       },
       "TuningIn": {
         "properties": {

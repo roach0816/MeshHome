@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 from typing import Any
 
 from app.radio.base import (
@@ -708,6 +709,47 @@ class MeshCoreTcpRadio(RadioAdapter):
         if ticket.kind == "telemetry":
             return {"lpp": p.get("lpp") or []}
         return {k: v for k, v in p.items() if k not in ("tag", "pubkey_prefix", "pubkey_pre")}
+
+    async def trace_send(self, path: bytes, flags: int) -> RemoteTicket:
+        from meshcore import EventType
+
+        mc = self._require()
+        tag = random.randint(1, 0xFFFFFFFF)
+        received: list[dict[str, Any]] = []
+        arrived = asyncio.Event()
+
+        async def _collect(event):
+            p = _payload(event)
+            if p.get("tag") == tag:
+                received.append(p)
+                arrived.set()
+
+        sub = mc.subscribe(EventType.TRACE_DATA, _collect)  # before sending: the reply can be quick
+        try:
+            res = await self._ok(
+                mc.commands.send_trace(auth_code=0, tag=tag, flags=flags, path=path), "sending the trace"
+            )
+        except BaseException:
+            mc.unsubscribe(sub)
+            raise
+        est_ms = _payload(res).get("suggested_timeout") or 0
+        return RemoteTicket(
+            kind="trace",
+            public_key="",
+            tag=str(tag),
+            timeout=max(5.0, est_ms / 1000 * 1.5),
+            handle=(sub, received, arrived),
+        )
+
+    async def trace_wait(self, ticket: RemoteTicket, timeout: float) -> dict[str, Any]:
+        sub, received, arrived = ticket.handle
+        try:
+            await asyncio.wait_for(arrived.wait(), timeout)
+            return received[0]
+        finally:
+            ticket.handle = None
+            if self._mc is not None:
+                self._mc.unsubscribe(sub)
 
     async def remote_wait(self, ticket: RemoteTicket, timeout: float) -> Any:
         if ticket.handle is None:
