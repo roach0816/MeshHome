@@ -64,8 +64,11 @@ signatures; other MeshCore apps and radios show the text as usual.
     standard contact link. In MeshHome and MeshOS it shows as a card with an **Add** button.
   - **Add** shows the start of their key (such as `B3F8 CE5B 40D1 A9E2`) to compare with them in
     person or on a call, then adds them to your radio's contacts.
-  - **Contacts → My contact** shows your QR code, link and key, and adds someone from a link they
-    sent you.
+  - **Contacts → My contact** (also the QR icon in **Account**, from your name at the bottom left)
+    shows your QR code, link and key.
+  - **Contacts → +** adds someone by scanning their contact QR code (the camera on HTTPS pages; a
+    photo of the code works everywhere) or pasting their `meshcore://contact/add` link, after
+    showing the start of their key to check.
 
 The signature covers the channel, the time and the text, so it can't be moved to another channel
 or reused. Contact cards are too long to carry a signature.
@@ -88,9 +91,10 @@ it. Right-click or long-press a contact for:
 - **Remove contact:** removes it from the radio. The archive keeps the conversation.
 - **Remote manage** (repeaters and room servers), below.
 
-**Adding contacts by public key:** a script can add someone from their MeshCore contact code or
-public key and name (`POST /api/contacts/import`, see [API.md](API.md)), so you can message them
-before the radio hears their advert. The web interface has no screen for this yet.
+**Adding a contact** before the radio hears their advert: **+** on the Contacts page scans their
+contact QR code (camera on HTTPS; a photo of the code works everywhere) or takes their
+`meshcore://contact/add` link, shows their name, type and key to check, and adds them to the radio.
+Scripts can do the same with `POST /api/contacts/import` (see [API.md](API.md)).
 
 **Blocked** and **Removed from radio** are different: *Blocked* is MeshHome's own setting (the
 contact stays on the radio), while *Removed from radio* means the contact is no longer in the radio's

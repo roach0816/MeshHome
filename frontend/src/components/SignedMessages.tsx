@@ -5,6 +5,7 @@ import { api, type Contact, type Conversation, type MessageSignature, type MyCon
 import { canCopy, cx, newClientId } from "../lib/util";
 import { Dialog } from "./Dialog";
 import { QrCode } from "./QrCode";
+import { QrScanner } from "./QrScanner";
 import { Button, ErrorText, Input } from "./ui";
 
 // Signed channel messages (backend: services/signed_messages.py). A signature is checked against
@@ -218,15 +219,16 @@ export function SignedMessagesDialog({ conv, onClose }: { conv: Conversation; on
 
 const CONTACT_LINK = /^meshcore:\/\/contact\/add\?\S+$/;
 
-/** The name and key in a MeshCore contact link, if a message is one. */
-export function contactLink(body: string): { uri: string; name: string; key: string } | null {
+/** The name, key and node type in a MeshCore contact link, if a message (or QR code) is one. */
+export function contactLink(body: string): { uri: string; name: string; key: string; kind: number } | null {
   const uri = body.trim();
   if (!CONTACT_LINK.test(uri)) return null;
   try {
     const q = new URL(uri.replace(/^meshcore:\/\//, "https://x/")).searchParams;
     const key = (q.get("public_key") ?? "").toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(key)) return null;
-    return { uri, name: q.get("name") ?? "", key };
+    const kind = Number(q.get("type") ?? "1");
+    return { uri, name: q.get("name") ?? "", key, kind: [1, 2, 3, 4].includes(kind) ? kind : 1 };
   } catch {
     return null;
   }
@@ -295,20 +297,9 @@ export function ContactCard({ uri, name, contactKey, own }: { uri: string; name:
   );
 }
 
-/** Your own contact for sharing (QR code and link), and adding someone from theirs. */
+/** Your own contact for sharing: QR code, link and key. */
 export function MyContactDialog({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
   const me = useMyContact();
-  const [link, setLink] = useState("");
-  const parsed = contactLink(link);
-  const add = useMutation({
-    mutationFn: () => api<{ added: boolean; contact: Contact }>("/api/contacts/import", { json: { uri: link.trim() } }),
-    onSuccess: () => {
-      setLink("");
-      qc.invalidateQueries({ queryKey: ["contacts"] });
-      qc.invalidateQueries({ queryKey: ["messages"] });
-    },
-  });
   return (
     <Dialog
       title="My contact"
@@ -325,7 +316,7 @@ export function MyContactDialog({ onClose }: { onClose: () => void }) {
             <QrCode value={me.data.uri} label={`QR code for ${me.data.name}`} className="size-48 rounded-lg" />
             <div>
               <p className="font-medium">{me.data.name}</p>
-              <p className="font-mono text-xs text-muted break-all">{keyStart(me.data.public_key, 32)}</p>
+              <p className="break-words font-mono text-xs text-muted">{keyStart(me.data.public_key, 32)}</p>
             </div>
             <p className="text-xs text-muted">
               Others scan this in a MeshCore app, or add your link, to message you and to count your signed messages as a
@@ -342,31 +333,168 @@ export function MyContactDialog({ onClose }: { onClose: () => void }) {
           <ErrorText error={me.error} />
         )}
 
-        <div className="space-y-2 border-t border-line pt-4">
-          <label htmlFor="contact-link" className="block font-medium">
-            Add someone from their link
-          </label>
-          <Input
-            id="contact-link"
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="meshcore://contact/add?name=…"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {parsed && (
-            <p className="text-xs text-muted">
-              {parsed.name || "This contact"}: key starts <span className="font-mono text-ink">{keyStart(parsed.key)}</span>.
-              Check it with them before adding.
-            </p>
-          )}
-          <Button onClick={() => add.mutate()} disabled={!parsed || add.isPending}>
-            <UserPlus className="size-4" aria-hidden /> Add to contacts
+      </div>
+    </Dialog>
+  );
+}
+
+const KIND: Record<number, string> = { 1: "Companion", 2: "Repeater", 3: "Room server", 4: "Sensor" };
+
+/** Add a contact from their QR code (camera, or a photo on plain-HTTP pages) or their link. */
+export function AddContactDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [mode, setMode] = useState<"scan" | "link">("scan");
+  const [link, setLink] = useState("");
+  const [scanned, setScanned] = useState<ReturnType<typeof contactLink>>(null);
+  const [scanError, setScanError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const typed = contactLink(link);
+  const candidate = mode === "scan" ? scanned : typed;
+  const add = useMutation({
+    mutationFn: (uri: string) => api<{ added: boolean; contact: Contact }>("/api/contacts/import", { json: { uri } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["messages"] });
+    },
+  });
+  const reset = () => {
+    setScanned(null);
+    setScanError("");
+    setLink("");
+    add.reset();
+    setAttempt((n) => n + 1);
+  };
+
+  if (add.data) {
+    const c = add.data.contact;
+    return (
+      <Dialog
+        title={add.data.added ? "Contact added" : "Already a contact"}
+        size="sm"
+        onClose={onClose}
+        footer={
+          <>
+            <Button variant="ghost" onClick={reset}>
+              Add another
+            </Button>
+            <Button variant="primary" onClick={onClose}>
+              Done
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          {add.data.added
+            ? `${c.name} is now in your radio's contacts. Their position and route arrive with their next advert.`
+            : `${c.name} is already one of your radio's contacts.`}
+        </p>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog
+      title="Add contact"
+      onClose={onClose}
+      footer={
+        candidate ? (
+          <>
+            <Button variant="ghost" onClick={reset}>
+              Back
+            </Button>
+            <Button variant="primary" onClick={() => add.mutate(candidate.uri)} disabled={add.isPending}>
+              <UserPlus className="size-4" aria-hidden /> Add to contacts
+            </Button>
+          </>
+        ) : (
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
           </Button>
-          {add.data && <p className="text-xs text-ok">{add.data.added ? "Added to your contacts." : "Already one of your contacts."}</p>}
+        )
+      }
+    >
+      {candidate ? (
+        <div className="space-y-3 text-sm">
+          <div className="rounded-xl border border-line p-3">
+            <p className="font-medium">{candidate.name || "Unnamed contact"}</p>
+            <p className="text-xs text-muted">{KIND[candidate.kind]}</p>
+            <p className="mt-2 break-words font-mono text-xs text-muted">{keyStart(candidate.key, 32)}</p>
+          </div>
+          <p>
+            Their key starts <span className="font-mono font-semibold">{keyStart(candidate.key)}</span>.
+          </p>
+          <p className="text-muted">
+            Anyone can make a code with any name. Check the start of the key with {candidate.name || "them"}, in person or
+            on a call, before you trust their signed messages. Adding puts them in your radio's contacts.
+          </p>
           <ErrorText error={add.error} />
         </div>
-      </div>
+      ) : (
+        <div className="space-y-4 text-sm">
+          <div role="tablist" aria-label="How to add" className="grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1">
+            {(
+              [
+                ["scan", "Scan QR code"],
+                ["link", "Paste link"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                role="tab"
+                aria-selected={mode === m}
+                onClick={() => setMode(m)}
+                className={cx(
+                  "min-h-10 rounded-lg px-3 text-sm font-medium",
+                  mode === m ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {mode === "scan" ? (
+            <div className="space-y-2">
+              <p className="text-muted">
+                Scan the contact QR code from their MeshCore app, MeshOS or MeshHome (Contacts → My contact).
+              </p>
+              <QrScanner
+                key={attempt}
+                onResult={(text) => {
+                  const c = contactLink(text);
+                  if (c) {
+                    setScanned(c);
+                    setScanError("");
+                  } else {
+                    setScanError("That QR code isn't a MeshCore contact. Scan the code under their \"Share my contact\".");
+                    setAttempt((n) => n + 1);
+                  }
+                }}
+              />
+              {scanError && <p className="text-xs text-danger">{scanError}</p>}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label htmlFor="contact-link" className="block font-medium">
+                Their contact link
+              </label>
+              <Input
+                id="contact-link"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="meshcore://contact/add?name=…&public_key=…"
+                autoComplete="off"
+                spellCheck={false}
+                autoFocus
+              />
+              <p className="text-xs text-muted">
+                {link.trim() && !typed
+                  ? "That isn't a MeshCore contact link. It starts with meshcore://contact/add?"
+                  : "The link someone shared from their MeshCore app, MeshOS or MeshHome."}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </Dialog>
   );
 }

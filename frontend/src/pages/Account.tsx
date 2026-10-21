@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, Monitor } from "lucide-react";
+import { LogOut, Monitor, QrCode } from "lucide-react";
 import { api, type Me, type SignedInDevice } from "../lib/api";
 import { formatDateTime } from "../lib/util";
-import { Badge, Button, ErrorText, Field, Input } from "../components/ui";
+import { Badge, Button, ErrorText, Field, IconButton, Input } from "../components/ui";
 import { Dialog } from "../components/Dialog";
+import { MyContactDialog } from "../components/SignedMessages";
 
 function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   return (
@@ -19,6 +20,7 @@ function Section({ title, description, children }: { title: string; description?
 /** Account settings, opened from the username at the bottom of the sidebar. */
 export function AccountDialog({ me, onClose }: { me: Me; onClose: () => void }) {
   const qc = useQueryClient();
+  const [showContact, setShowContact] = useState(false);
   const logout = useMutation({
     mutationFn: () => api("/api/auth/logout", { method: "POST" }),
     onSettled: () => {
@@ -41,6 +43,9 @@ export function AccountDialog({ me, onClose }: { me: Me; onClose: () => void }) 
             <p className="truncate font-semibold">{me.username}</p>
             <p className="truncate text-sm text-muted">Owner of {me.home_name}</p>
           </div>
+          <IconButton label="My contact: QR code, name and key" onClick={() => setShowContact(true)}>
+            <QrCode className="size-5" />
+          </IconButton>
           <Button variant="ghost" onClick={() => logout.mutate()} disabled={logout.isPending}>
             <LogOut className="size-4" aria-hidden /> Sign out
           </Button>
@@ -49,6 +54,7 @@ export function AccountDialog({ me, onClose }: { me: Me; onClose: () => void }) 
         <PasswordSection />
         <DevicesSection />
       </div>
+      {showContact && <MyContactDialog onClose={() => setShowContact(false)} />}
     </Dialog>
   );
 }

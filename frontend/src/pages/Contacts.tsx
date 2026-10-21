@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { Link, useNavigate } from "react-router";
 import {
   IdCard,
+  Plus,
   ArrowDown,
   ArrowUp,
   Ban,
@@ -26,7 +27,7 @@ import { Badge, Button, ErrorText, Field, IconButton, Input } from "../component
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Dialog } from "../components/Dialog";
 import { useContextTrigger } from "../components/useContextTrigger";
-import { MyContactDialog } from "../components/SignedMessages";
+import { AddContactDialog, MyContactDialog } from "../components/SignedMessages";
 import { canCopy, cx, formatDateTime, sameDay } from "../lib/util";
 
 // MeshCore advert types.
@@ -127,6 +128,7 @@ export function Contacts() {
   }, [data, page, pages]);
 
   const [showMine, setShowMine] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
   const actions = useContactActions();
   const trigger = useContextTrigger();
   const from = data && data.total ? (page - 1) * pageSize + 1 : 0;
@@ -147,8 +149,12 @@ export function Contacts() {
         <Button onClick={() => setShowMine(true)}>
           <IdCard className="size-4" aria-hidden /> My contact
         </Button>
+        <IconButton label="Add contact" onClick={() => setShowAdd(true)}>
+          <Plus className="size-5" />
+        </IconButton>
       </header>
       {showMine && <MyContactDialog onClose={() => setShowMine(false)} />}
+      {showAdd && <AddContactDialog onClose={() => setShowAdd(false)} />}
 
       {/* Toolbar: search, filters, sort */}
       <div className="space-y-2 border-b border-line bg-surface px-3 py-2.5 md:px-4">
