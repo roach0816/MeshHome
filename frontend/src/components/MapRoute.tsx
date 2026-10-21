@@ -4,7 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Activity, Eraser, Undo2 } from "lucide-react";
 import { api, type MapData, type MapNode } from "../lib/api";
-import { GATEWAY_COLOR, KINDS, markerIcon } from "../pages/NodeMap";
+import { AGE_LABELS, AGE_SECONDS, GATEWAY_COLOR, KINDS, STALE_SECONDS, heardAgo, markerIcon, type Age } from "../pages/NodeMap";
 import { Button, ErrorText } from "./ui";
 import { Dialog } from "./Dialog";
 import { cx } from "../lib/util";
@@ -55,11 +55,22 @@ export function MapRoute({
   const layer = useRef<L.LayerGroup | null>(null);
   const fitted = useRef(false);
   const [route, setRoute] = useState<MapNode[]>([]);
+  // Repeaters that have gone quiet are unlikely to relay, so older ones are hidden by default.
+  const [age, setAge] = useState<Age>("7d");
   const trace = useMutation({
     mutationFn: (keys: string[]) => api<TraceResult>("/api/radio/trace", { json: { hops: keys } }),
   });
 
-  const relays = useMemo(() => (data.data?.nodes ?? []).filter((n) => PICKABLE.has(n.kind)), [data.data]);
+  const allRelays = useMemo(() => (data.data?.nodes ?? []).filter((n) => PICKABLE.has(n.kind)), [data.data]);
+  // Hops already on the route stay on the map, so the route line never points at a hidden marker.
+  const relays = useMemo(
+    () =>
+      allRelays.filter(
+        (n) => age === "all" || heardAgo(n.last_advert_at) <= AGE_SECONDS[age] || route.some((r) => r.id === n.id),
+      ),
+    [allRelays, age, route],
+  );
+  const tooOld = allRelays.length - relays.length;
   const target = data.data?.nodes.find((n) => n.public_key === targetKey);
   const home = data.data?.gateways[0];
 
@@ -115,7 +126,7 @@ export function MapRoute({
       const k = KINDS[n.kind];
       const pos = order.get(n.id);
       L.marker([n.lat, n.lon], {
-        icon: pos ? numberedIcon(pos) : markerIcon(k.color, k.glyph),
+        icon: pos ? numberedIcon(pos) : markerIcon(k.color, k.glyph, { stale: heardAgo(n.last_advert_at) > STALE_SECONDS }),
         title: `${n.alias || n.name}: tap to add as the next hop`,
         alt: `${k.label.replace(/s$/, "")}: ${n.alias || n.name}`,
         keyboard: true,
@@ -175,6 +186,27 @@ export function MapRoute({
           Tap the repeaters in the order messages should take, starting with the one your radio reaches. Then test the route:
           a trace goes out along it and back, and each repeater reports the signal it heard.
         </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <label className="flex items-center gap-2">
+            Heard within
+            <select
+              value={age}
+              onChange={(e) => setAge(e.target.value as Age)}
+              className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs text-ink"
+            >
+              {Object.entries(AGE_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {tooOld > 0 && (
+            <span>
+              {tooOld} older {tooOld === 1 ? "repeater" : "repeaters"} hidden
+            </span>
+          )}
+        </div>
         <div ref={container} className="h-[min(50vh,26rem)] w-full overflow-hidden rounded-xl border border-line" aria-label="Map of repeaters" />
         {hidden && (
           <p className="text-xs text-muted">Repeaters that don't share their position aren't on the map; add those from the list instead.</p>

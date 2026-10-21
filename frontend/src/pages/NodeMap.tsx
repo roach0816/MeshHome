@@ -19,9 +19,15 @@ const OTHER = { label: "Other", color: "#64748b", glyph: "?" };
 export const GATEWAY_COLOR = "#0f766e";
 const kindOf = (k: number) => KINDS[k] ?? OTHER;
 
-type Age = "all" | "1d" | "7d" | "30d";
-const AGE_SECONDS: Record<Age, number> = { all: Infinity, "1d": 86400, "7d": 7 * 86400, "30d": 30 * 86400 };
-const STALE_SECONDS = 7 * 86400;
+export type Age = "all" | "1d" | "7d" | "30d";
+export const AGE_SECONDS: Record<Age, number> = { all: Infinity, "1d": 86400, "7d": 7 * 86400, "30d": 30 * 86400 };
+export const AGE_LABELS: Record<Age, string> = { all: "Any time", "1d": "24 hours", "7d": "7 days", "30d": "30 days" };
+export const STALE_SECONDS = 7 * 86400;
+
+/** Seconds since a node's last advert; Infinity if it has never been heard. */
+export function heardAgo(lastAdvertAt: string | null): number {
+  return lastAdvertAt ? Date.now() / 1000 - new Date(lastAdvertAt).getTime() / 1000 : Infinity;
+}
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -81,13 +87,11 @@ export function NodeMap() {
   const [hidden, setHidden] = useState<Set<number>>(new Set());
   const [age, setAge] = useState<Age>("all");
 
-  const now = Date.now() / 1000;
   const visible = useMemo(
     () =>
       (data.data?.nodes ?? []).filter((n) => {
         if (hidden.has(n.kind in KINDS ? n.kind : -1)) return false;
-        const t = n.last_advert_at ? new Date(n.last_advert_at).getTime() / 1000 : 0;
-        return age === "all" || now - t <= AGE_SECONDS[age];
+        return age === "all" || heardAgo(n.last_advert_at) <= AGE_SECONDS[age];
       }),
     [data.data, hidden, age],
   );
@@ -169,9 +173,8 @@ export function NodeMap() {
     }
     for (const n of visible) {
       const k = kindOf(n.kind);
-      const t = n.last_advert_at ? new Date(n.last_advert_at).getTime() / 1000 : 0;
       L.marker([n.lat, n.lon], {
-        icon: markerIcon(k.color, k.glyph, { stale: Date.now() / 1000 - t > STALE_SECONDS }),
+        icon: markerIcon(k.color, k.glyph, { stale: heardAgo(n.last_advert_at) > STALE_SECONDS }),
         title: n.alias || n.name,
         alt: `${k.label.replace(/s$/, "")}: ${n.alias || n.name}`,
         keyboard: true,
@@ -254,10 +257,11 @@ export function NodeMap() {
             onChange={(e) => setAge(e.target.value as Age)}
             className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs text-ink"
           >
-            <option value="all">Any time</option>
-            <option value="1d">24 hours</option>
-            <option value="7d">7 days</option>
-            <option value="30d">30 days</option>
+            {Object.entries(AGE_LABELS).map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
       </div>

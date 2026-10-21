@@ -83,11 +83,13 @@ it. Right-click or long-press a contact for:
 - **Details**.
 - **Share:** copy a `meshcore://` contact link, or re-broadcast the advert to nearby nodes.
 - **Set path / Reset path:** choose the repeater route, or go back to flooding. Pick repeaters from
-  a list, type their hashes, or **pick them on the map and test it**: tap the repeaters in order (a
-  line follows the route from your node), then **Test route** sends a trace along it and back, and
-  shows the signal (SNR) each repeater heard and how long the round trip took. **Undo** and
-  **Clear** start over; **Use this route** sets it. A trace tests the repeaters, not the contact
-  itself.
+  a list (most recently heard first, with when each was last heard), type their hashes, or **pick
+  them on the map and test it**: tap the repeaters in order (a line follows the route from your
+  node), then **Test route** sends a trace along it and back, and shows the signal (SNR) each
+  repeater heard and how long the round trip took. The map shows repeaters heard within the last 7
+  days; **Heard within** shows more or fewer, and repeaters not heard for over a week are dimmed.
+  **Undo** and **Clear** start over; **Use this route** sets it. A trace tests the repeaters, not
+  the contact itself.
 - **Favorite:** sets the radio's favourite flag, so the radio won't overwrite the contact when its
   contact list is full.
 - **Block:** an app-side block. MeshCore radios can't block traffic, so the blocked contact's DMs, and

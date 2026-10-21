@@ -32,11 +32,13 @@ import { AddContactDialog, MyContactDialog } from "../components/SignedMessages"
 
 // The map (Leaflet) loads only when the route picker is opened.
 const MapRoute = lazy(() => import("../components/MapRoute").then((m) => ({ default: m.MapRoute })));
-import { canCopy, cx, formatDateTime, sameDay } from "../lib/util";
+import { canCopy, cx, formatDateTime, relativeSeconds, sameDay } from "../lib/util";
 
 // MeshCore advert types.
 const KIND: Record<number, string> = { 1: "Companion", 2: "Repeater", 3: "Room server", 4: "Sensor" };
 const kindLabel = (k: number) => KIND[k] ?? `Type ${k}`;
+/** A contact's last advert as epoch seconds, 0 if never heard. */
+const heardAt = (c: Contact) => (c.last_advert_at ? new Date(c.last_advert_at).getTime() / 1000 : 0);
 const PAGE_SIZES = [10, 25, 50] as const;
 type Show = "all" | "favorites" | "blocked" | "removed";
 type SortKey = "name" | "kind" | "last_heard";
@@ -646,11 +648,12 @@ function PathDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
   const repeaters = useQuery({
     queryKey: ["contacts", "repeaters-for-path"],
     queryFn: async () => {
+      // Most recently heard first: a repeater that has gone quiet is a poor hop.
       const [r, s] = await Promise.all([
-        api<ContactPage>("/api/contacts?kind=2&page_size=50&sort=name"),
-        api<ContactPage>("/api/contacts?kind=3&page_size=50&sort=name"),
+        api<ContactPage>("/api/contacts?kind=2&page_size=50&sort=last_heard"),
+        api<ContactPage>("/api/contacts?kind=3&page_size=50&sort=last_heard"),
       ]);
-      return [...r.items, ...s.items];
+      return [...r.items, ...s.items].sort((a, b) => heardAt(b) - heardAt(a));
     },
   });
   const [hops, setHops] = useState<string[]>([]);
@@ -737,7 +740,7 @@ function PathDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
             <option value="">Add a known repeater…</option>
             {repeaters.data?.map((r) => (
               <option key={r.id} value={r.public_key}>
-                {r.alias || r.name} ({r.public_key.slice(0, size * 2)})
+                {r.alias || r.name} ({r.public_key.slice(0, size * 2)}) · {heardAt(r) ? `heard ${relativeSeconds(heardAt(r))}` : "never heard"}
               </option>
             ))}
           </select>
