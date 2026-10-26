@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.11**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.12**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -583,12 +583,12 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 
 | Request | Returns |
 | --- | --- |
-| `GET /api/sensors` | Sensors attached to the Pi: `{"environment": {"status": "ok", "address": 118, "reading": {"temperature_c": 21.4, "humidity": 48.0, "pressure_hpa": 1013.2, "gas_ohms": 120000, "at": 1792980817}}, "gnss": {"status": "fix", "device": "/dev/serial0", "reading": {"fix": true, "lat": …, "lon": …, "alt_m": …, "satellites": 9, "at": …}, "location_update": null}, "config": {...}}`. Status: `off`, `not_found`, `ok`/`fix`, `no_fix`, `silent` (GPS not sending) or `error`. |
+| `GET /api/sensors` | Sensors attached to the Pi: `{"available": true, "environment": {"status": "ok", "address": 118, "reading": {"temperature_c": 21.4, "humidity": 48.0, "pressure_hpa": 1013.2, "gas_ohms": 120000, "at": 1792980817}}, "gnss": {"status": "fix", "device": "/dev/serial0", "reading": {"fix": true, "lat": …, "lon": …, "alt_m": …, "satellites": 9, "at": …}, "location_update": null}, "config": {...}}`. Status: `off`, `not_found`, `ok`/`fix`, `no_fix`, `silent` (GPS not sending) or `error`. `available` is false in a container (Docker, Kubernetes): only native installs read sensors (feature `sensors` in `GET /api/meta`), so everything stays `off` and `PUT /api/settings/sensors` returns 409. |
 | `GET /api/sensors/history?hours=24` | Stored readings (every 5 minutes, kept 30 days), averaged into at most 300 points: `{"hours": 24, "points": [{"at": "…", "temperature_c": …, "humidity": …, "pressure_hpa": …, "gas_ohms": …}]}`. `hours` is 1–720. |
 | `GET /api/settings/notifications` | `{"sound": "off" \| "all" \| "dms"}` (browser notification sound). |
 | `GET /api/settings/map` | Map tile URL, attribution, maximum zoom, and `place_names` (look up place names for node positions). |
 | `GET /api/settings/app-install` | "Install as an app": `{"enabled": false, "https": true}`. `https` says whether this request reached the server over HTTPS (directly or through a proxy that sends `X-Forwarded-Proto: https`). While `enabled`, `/manifest.webmanifest` serves the web app manifest; otherwise it answers `404`. |
-| `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone", "env": true}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, `/env` (when `env` is true and an environment sensor is working; see `GET /api/sensors`), and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
+| `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone", "env": true}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, `/env` (when `env` is true and an environment sensor is working on a native install; see `GET /api/sensors`), and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
 | `GET /api/settings/radio` | Radio connection settings: `mode` (`tcp`, `simulated` or `none`), `host`, `port`, `paused`, `sim_interval_seconds`. |
 | `GET /api/radio/config` | The connected node's configuration: identity, LoRa parameters, channels (names and key *types*, never keys), behaviour and telemetry. `409` if the radio is offline. |
 | `GET /api/radio/channels/hashtag-key?name=%23hikers` | The key of a public `#hashtag` channel, derived from its name: `{"name", "hex", "base64"}`. |
@@ -745,20 +745,20 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,
   "features": ["signed_in_devices", "backup", "remote_admin", "bot", "weather", "bot_apps", "firmware_check",
                "api_keys", "contact_import", "software_updates", "network_settings", "radio_hat",
-               "system_backup"]
+               "system_backup", "sensors"]
 }
 ```
 
 - `api_version` only goes up for a change that existing clients can't handle. Changes are
   otherwise additive: new endpoints, new optional fields, new `features` names. Ignore fields and
   features you don't know.
-- `features` tells you what this server has. The last four exist only on native (Debian /
+- `features` tells you what this server has. The last five exist only on native (Debian /
   Raspberry Pi) installs.
 - `needs_setup: true` means the first-run wizard hasn't been completed.
 

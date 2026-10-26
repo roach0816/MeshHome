@@ -7,8 +7,8 @@ does: live readings, a reading every few minutes for history, the /env bot comma
 optionally, the radio's advertised location from the GPS.
 
 Readings happen in worker threads, so a slow or missing device never holds up the radio or the
-web app. Where there's no such hardware (Docker, Kubernetes, another computer), each sensor
-simply shows as not found.
+web app. Only a native (Debian / Raspberry Pi) install reads them: in a container (Docker,
+Kubernetes) the sensors, their settings and /env are turned off (see available()).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from typing import Any
 from sqlalchemy import delete
 
 from app import db
+from app.config import get_settings
 from app.models import AuditEvent, SensorReading
 from app.services import app_settings
 
@@ -178,6 +179,12 @@ def open_serial(device: str):
     return serial.Serial(device, GNSS_BAUD, timeout=1)
 
 
+def available() -> bool:
+    """Sensors are read only on a native install, which gives the app the Pi's I2C and serial ports."""
+    s = get_settings()
+    return s.install_kind == "native" and bool(s.state_dir)
+
+
 # ---- the manager --------------------------------------------------------------------------------
 
 
@@ -205,7 +212,7 @@ class Sensors:
 
     # lifecycle
     def start(self) -> None:
-        if self._task is None:
+        if self._task is None and available():
             self._wake = asyncio.Event()
             self._task = asyncio.create_task(self._loop(), name="sensors")
 
@@ -231,6 +238,7 @@ class Sensors:
     def snapshot(self) -> dict[str, Any]:
         g = dict(self.gnss)
         return {
+            "available": available(),
             "environment": {"status": self.env_status, "address": self.env_address, "reading": self.env},
             "gnss": {
                 "status": self.gnss_status,

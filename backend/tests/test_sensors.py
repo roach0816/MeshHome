@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app import db
+from app.config import get_settings
 from app.models import SensorReading
 from app.radio.base import IncomingMessage
 from app.services import bot, sensors
@@ -58,6 +59,14 @@ def test_parse_fix_sentences():
 def test_distance():
     assert distance_m(48.1173, 11.5167, 48.1173, 11.5167) == 0
     assert distance_m(0, 0, 0, 1) == pytest.approx(111195, rel=1e-3)
+
+
+@pytest.fixture
+def native(monkeypatch, tmp_path):
+    """A native (Debian / Raspberry Pi) install: the only kind that reads sensors."""
+    s = get_settings()
+    monkeypatch.setattr(s, "install_kind", "native")
+    monkeypatch.setattr(s, "state_dir", str(tmp_path))
 
 
 class FakeEnv:
@@ -193,12 +202,13 @@ async def test_location_from_gps(client):
     assert st["lat"] == 48.1273 and st["name"]  # name kept
 
 
-async def test_sensors_api_and_history(client):
+async def test_sensors_api_and_history(client, native):
     await do_setup(client)
     r = await client.get("/api/sensors")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"environment", "gnss", "config"} and body["config"]["environment"] is True
+    assert set(body) == {"available", "environment", "gnss", "config"} and body["available"] is True
+    assert body["config"]["environment"] is True
 
     r = await client.put(
         "/api/settings/sensors", headers=csrf(client), json={**body["config"], "update_location": True}
@@ -222,7 +232,7 @@ async def test_sensors_api_and_history(client):
     assert len(h["points"]) <= 300 and all(p["pressure_hpa"] is None for p in h["points"])
 
 
-async def test_env_bot_command(client):
+async def test_env_bot_command(client, native):
     from app.radio import simulated
 
     simulated._SIM_STATE = None
@@ -282,6 +292,51 @@ async def test_env_bot_command(client):
         assert "env (" not in await ask("/help me")
     finally:
         m.env_status, m.env, m._env_dev, m.open_environment = saved
+
+
+async def test_no_sensors_in_a_container(client):
+    from app.radio import simulated
+
+    simulated._SIM_STATE = None
+    bot._last_reply.clear()
+    await do_setup(client)
+    await _connected_conversations(client)
+    body = (await client.get("/api/sensors")).json()
+    assert body["available"] is False and body["environment"]["status"] == "off"
+    assert "sensors" not in (await client.get("/api/meta")).json()["features"]
+    r = await client.put("/api/settings/sensors", headers=csrf(client), json=body["config"])
+    assert r.status_code == 409
+
+    # /env isn't answered, even with readings (and Answer /env on).
+    m = sensors.manager
+    saved = (m.env_status, m.env)
+    m.env_status, m.env = "ok", {"temperature_c": 18.25, "at": time.time()}
+    try:
+        await client.put(
+            "/api/settings/bot", headers=csrf(client), json={"enabled": True, "allow": "everyone"}
+        )
+        (await radio_adapter()).inject(
+            IncomingMessage(
+                kind="dm",
+                text="/env",
+                pubkey_prefix=simulated._key("tracker")[:12],
+                sender_timestamp=int(time.time()),
+            )
+        )
+
+        async def reply():
+            convs = (await client.get("/api/conversations")).json()
+            conv = next((c for c in convs if c["title"].startswith("Tracker")), None)
+            if conv is None:
+                return None
+            msgs = (await client.get(f"/api/conversations/{conv['id']}/messages?limit=200")).json()[
+                "messages"
+            ]
+            return next((x["body"] for x in msgs if x["direction"] == "out" and x["meta"].get("bot")), None)
+
+        assert await wait_for(reply) == "Unknown command /env. Try /help"
+    finally:
+        m.env_status, m.env = saved
 
 
 def test_gnss_device_on_a_pi5(tmp_path):

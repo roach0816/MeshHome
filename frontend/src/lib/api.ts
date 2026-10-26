@@ -696,6 +696,8 @@ export interface GnssReading {
 }
 
 export interface SensorsState {
+  /** False in a container (Docker, Kubernetes): only a Raspberry Pi / Debian install reads sensors. */
+  available: boolean;
   environment: { status: "off" | "not_found" | "ok" | "error"; address: number | null; reading: EnvReading | null };
   gnss: {
     status: "off" | "not_found" | "silent" | "no_fix" | "fix" | "error";

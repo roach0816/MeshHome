@@ -7352,6 +7352,10 @@
       },
       "SensorsOut": {
         "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
           "environment": {
             "additionalProperties": true,
             "type": "object",
@@ -7368,6 +7372,7 @@
         },
         "type": "object",
         "required": [
+          "available",
           "environment",
           "gnss",
           "config"

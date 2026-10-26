@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ from app.db import get_db
 from app.models import AuditEvent, SensorReading
 from app.realtime import hub
 from app.services import app_settings
-from app.services.sensors import manager
+from app.services.sensors import available, manager
 
 router = APIRouter(prefix="/api", tags=["sensors"])
 
@@ -23,6 +23,9 @@ MAX_POINTS = 300
 
 
 class SensorsOut(BaseModel):
+    # False in a container (Docker, Kubernetes): sensors are only read on a native install, so the
+    # statuses stay "off", there's no history and the settings can't be changed.
+    available: bool
     # status: off | not_found | ok | error (environment); off | not_found | silent | no_fix | fix |
     # error (gnss). reading: the latest values, with "at" (Unix seconds).
     environment: dict[str, Any]
@@ -82,6 +85,8 @@ async def put_sensors(
     ctx: AuthContext = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ):
+    if not available():
+        raise HTTPException(409, "Sensors are only read on a Raspberry Pi / Debian install")
     await app_settings.put_sensors_config(db, body)
     db.add(AuditEvent(kind="settings.sensors", detail=body.model_dump()))
     await db.commit()

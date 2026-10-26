@@ -152,6 +152,7 @@ message:
 - `/env`: the readings of the environment sensor on this Pi ([Sensors on the Pi](#sensors-on-the-pi)),
   such as `🌡️ 21.4°C · 💧 48% RH · ⏲️ 1013.2 hPa · 🍃 air 120 kΩ`. **Answer /env**, beside it in the
   command list, turns it off; when it's on it follows **Who can use it** like the other commands.
+  Raspberry Pi / Debian installs only.
 
 **Apps** add more commands. Choose **Browse apps** in Settings → Bot to open the
 [app catalog](https://github.com/roach0816/MeshHome-apps), and filter it by category; the categories
@@ -195,7 +196,8 @@ manage** or **Send message**. The town is looked up from OpenStreetMap Nominatim
 
 On a Raspberry Pi install, MeshHome reads sensors attached to the Pi itself (**Settings → Sensors**),
 such as the WisBlock modules on a RAK6421 HAT. The radio software on the HAT doesn't read them, so
-MeshHome does.
+MeshHome does. Only the Raspberry Pi / Debian install reads sensors: in Docker or Kubernetes there's
+no Sensors page and no `/env`.
 
 - **Environment sensor:** a BME680 (e.g. a RAK1906 in sensor slot B, C or D) on I²C bus 1, found
   automatically at address 0x76 or 0x77. Temperature, humidity, pressure and air quality (gas

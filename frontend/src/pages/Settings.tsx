@@ -89,6 +89,12 @@ const CATEGORIES: Category[] = [
 
 const WIDE = "(min-width: 1024px)"; // room for the conversation list, this menu and a page
 
+/** The categories for this install: Sensors only where they're read (a Raspberry Pi / Debian install). */
+function useCategories(): Category[] {
+  const sensors = useQuery({ queryKey: ["sensors"], queryFn: () => api<SensorsState>("/api/sensors") });
+  return sensors.data?.available ? CATEGORIES : CATEGORIES.filter((c) => c.id !== "sensors");
+}
+
 function useWide(): boolean {
   return useSyncExternalStore(
     (cb) => {
@@ -112,12 +118,13 @@ function CategoryBadge({ id }: { id: CategoryId }) {
 
 /** Settings pages: the category menu beside the page on wide screens; the page alone on phones. */
 export function SettingsLayout({ active, children }: { active: CategoryId; children: ReactNode }) {
+  const categories = useCategories();
   return (
     <div className="flex h-full">
       <nav aria-label="Settings" className="pwa-top hidden w-56 shrink-0 overflow-y-auto border-r border-line bg-surface lg:block">
         <h2 className="px-4 pb-2 pt-4 text-base font-semibold">Settings</h2>
         <ul className="space-y-0.5 px-2 pb-4">
-          {CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <li key={c.id}>
               <NavLink
                 to={categoryPath(c)}
@@ -162,6 +169,7 @@ function SettingsPage({ title, children }: { title: string; children: ReactNode 
 
 /** Phones: the list of categories. */
 function SettingsMenu() {
+  const categories = useCategories();
   return (
     <div className="flex h-full flex-col">
       <header className="pwa-top flex items-center gap-2 border-b border-line bg-surface px-1.5 py-1.5 md:px-4">
@@ -176,7 +184,7 @@ function SettingsMenu() {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-6">
         <ul className="mx-auto max-w-3xl divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
-          {CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <li key={c.id}>
               <Link to={categoryPath(c)} className="flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-surface-2">
                 <c.icon className="size-5 shrink-0 text-muted" />
@@ -250,9 +258,11 @@ function CategoryContent({ id }: { id: CategoryId }) {
 export function Settings() {
   const { category } = useParams();
   const wide = useWide();
+  const sensors = useQuery({ queryKey: ["sensors"], queryFn: () => api<SensorsState>("/api/sensors") });
   if (!category) return wide ? <Navigate to="/settings/radio" replace /> : <SettingsMenu />;
   const c = CATEGORIES.find((x) => x.id === category);
-  if (!c) return <Navigate to="/settings" replace />;
+  // Sensors are only read on a Raspberry Pi / Debian install.
+  if (!c || (c.id === "sensors" && sensors.data?.available === false)) return <Navigate to="/settings" replace />;
   if (c.to) return <Navigate to={c.to} replace />;
   return (
     <SettingsLayout active={c.id}>
@@ -959,7 +969,8 @@ function BotSection() {
     onSettled: () => setPending(null),
   });
   const c = pending ?? cfg.data;
-  // /env answers from the environment sensor on this Pi (Settings → Sensors), when there is one.
+  // /env answers from the environment sensor on this Pi (Settings → Sensors), when there is one;
+  // never in a container (Docker, Kubernetes), where sensors aren't read.
   const sensors = useQuery({ queryKey: ["sensors"], queryFn: () => api<SensorsState>("/api/sensors") });
   const envSensor = sensors.data?.environment.status;
   return (
@@ -1032,28 +1043,30 @@ function BotSection() {
                 <dd className="text-muted">{what}</dd>
               </div>
             ))}
-            <div className="flex gap-3 border-t border-line pt-1.5">
-              <dt className="w-20 shrink-0 font-mono font-medium">/env</dt>
-              <dd className="min-w-0 flex-1">
-                <label className={cx("flex cursor-pointer items-start gap-2", !c.enabled && "cursor-not-allowed opacity-60")}>
-                  <input
-                    type="checkbox"
-                    disabled={!c.enabled}
-                    checked={c.env}
-                    onChange={(e) => save.mutate({ ...c, env: e.target.checked })}
-                    className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
-                  />
-                  <span>
-                    <span className="block text-ink">Answer /env</span>
-                    <span className="block text-xs text-muted">
-                      {envSensor === "ok"
-                        ? "Temperature, humidity, pressure and air quality from this Pi's environment sensor, for the contacts allowed above."
-                        : "No environment sensor is working on this Pi (Settings → Sensors), so /env isn't answered."}
+            {sensors.data?.available && (
+              <div className="flex gap-3 border-t border-line pt-1.5">
+                <dt className="w-20 shrink-0 font-mono font-medium">/env</dt>
+                <dd className="min-w-0 flex-1">
+                  <label className={cx("flex cursor-pointer items-start gap-2", !c.enabled && "cursor-not-allowed opacity-60")}>
+                    <input
+                      type="checkbox"
+                      disabled={!c.enabled}
+                      checked={c.env}
+                      onChange={(e) => save.mutate({ ...c, env: e.target.checked })}
+                      className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+                    />
+                    <span>
+                      <span className="block text-ink">Answer /env</span>
+                      <span className="block text-xs text-muted">
+                        {envSensor === "ok"
+                          ? "Temperature, humidity, pressure and air quality from this Pi's environment sensor, for the contacts allowed above."
+                          : "No environment sensor is working on this Pi (Settings → Sensors), so /env isn't answered."}
+                      </span>
                     </span>
-                  </span>
-                </label>
-              </dd>
-            </div>
+                  </label>
+                </dd>
+              </div>
+            )}
           </dl>
           <p className="text-xs text-muted">Apps below add more commands.</p>
           <ErrorText error={save.error} />
