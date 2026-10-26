@@ -87,6 +87,8 @@ class BotConfig(BaseModel):
     enabled: bool = False
     # Who may use it: favourite contacts only, or every known contact.
     allow: Literal["favorites", "everyone"] = "favorites"
+    # /env: the environment sensor's readings (services/sensors.py), for those allowed above.
+    env: bool = True
 
 
 BOT_KEY = "bot"

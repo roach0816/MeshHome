@@ -85,8 +85,9 @@ async def test_environment_sensor_found_read_and_lost():
     await s._environment(cfg)
     assert tried == [(1, 0x76), (1, 0x77)] and s.env_address == 0x77 and s.env_status == "ok"
     assert s.env["temperature_c"] == 21.43
-    assert s.env_reply() == "21.4°C 48% RH · 1013.2 hPa · air 120 kΩ"
-    assert s.env_reply("imperial") == "70.6°F 48% RH · 29.92 inHg · air 120 kΩ"
+    assert s.env_reply() == "🌡️ 21.4°C · 💧 48% RH · ⏲️ 1013.2 hPa · 🍃 air 120 kΩ"
+    assert len(s.env_reply().encode()) <= 150  # one direct message
+    assert s.env_reply("imperial") == "🌡️ 70.6°F · 💧 48% RH · ⏲️ 29.92 inHg · 🍃 air 120 kΩ"
 
     # Unplugged: marked as an error, and looked for again later.
     s._env_dev.reading = OSError("Remote I/O error")
@@ -266,11 +267,19 @@ async def test_env_bot_command(client):
 
             return await wait_for(new)
 
-        assert await ask("/env") == "18.2°C 61% RH · 1002.4 hPa"
+        assert await ask("/env") == "🌡️ 18.2°C · 💧 61% RH · ⏲️ 1002.4 hPa"
         cfg = (await client.get("/api/sensors")).json()["config"]
         await client.put("/api/settings/sensors", headers=csrf(client), json={**cfg, "units": "imperial"})
-        assert await ask("/env now") == "64.8°F 61% RH · 29.60 inHg"
+        assert await ask("/env now") == "🌡️ 64.8°F · 💧 61% RH · ⏲️ 29.60 inHg"
         assert "env (temperature, humidity and pressure here)" in await ask("/help")
+        # Turned off under Bot settings: not answered, and not in /help.
+        await client.put(
+            "/api/settings/bot",
+            headers=csrf(client),
+            json={"enabled": True, "allow": "everyone", "env": False},
+        )
+        assert await ask("/env again") == "Unknown command /env. Try /help"
+        assert "env (" not in await ask("/help me")
     finally:
         m.env_status, m.env, m._env_dev, m.open_environment = saved
 

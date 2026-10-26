@@ -55,42 +55,159 @@ function Reading({ label, value, sub }: { label: string; value: string; sub?: st
 }
 
 /** A small line chart, drawn to scale between the series' own minimum and maximum. */
+/** A centred rolling average over `w` readings (gaps stay gaps): evens out sensor noise. */
+function smooth(values: (number | null)[], w = 5): (number | null)[] {
+  const h = Math.floor(w / 2);
+  return values.map((v, i) => {
+    if (v == null) return null;
+    let sum = 0;
+    let n = 0;
+    for (let j = Math.max(0, i - h); j <= Math.min(values.length - 1, i + h); j++) {
+      const x = values[j];
+      if (x != null) {
+        sum += x;
+        n++;
+      }
+    }
+    return sum / n;
+  });
+}
+
+/** An SVG path through the points as a monotone cubic curve (Fritsch–Carlson): smooth, but never
+ *  overshooting above or below the data. Breaks at gaps. */
+function curve(pts: ({ x: number; y: number } | null)[]): string {
+  let d = "";
+  const runs: { x: number; y: number }[][] = [];
+  let run: { x: number; y: number }[] = [];
+  for (const p of pts) {
+    if (p) run.push(p);
+    else if (run.length) {
+      runs.push(run);
+      run = [];
+    }
+  }
+  if (run.length) runs.push(run);
+  for (const r of runs) {
+    const n = r.length;
+    d += `M${r[0].x.toFixed(1)} ${r[0].y.toFixed(1)}`;
+    if (n < 2) continue;
+    const dx = r.slice(1).map((p, i) => p.x - r[i].x);
+    const m = r.slice(1).map((p, i) => (p.y - r[i].y) / (dx[i] || 1));
+    const t = r.map((_, i) => (i === 0 ? m[0] : i === n - 1 ? m[n - 2] : m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2));
+    for (let i = 0; i < n - 1; i++) {
+      if (m[i] === 0) {
+        t[i] = 0;
+        t[i + 1] = 0;
+      } else {
+        const a = t[i] / m[i];
+        const b = t[i + 1] / m[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+          const k = 3 / Math.sqrt(s);
+          t[i] = k * a * m[i];
+          t[i + 1] = k * b * m[i];
+        }
+      }
+    }
+    for (let i = 0; i < n - 1; i++) {
+      const h = dx[i] / 3;
+      d += `C${(r[i].x + h).toFixed(1)} ${(r[i].y + t[i] * h).toFixed(1)} ${(r[i + 1].x - h).toFixed(1)} ${(r[i + 1].y - t[i + 1] * h).toFixed(1)} ${r[i + 1].x.toFixed(1)} ${r[i + 1].y.toFixed(1)}`;
+    }
+  }
+  return d;
+}
+
+/** A line chart of readings: smoothed, drawn to scale between the series' minimum and maximum, with
+ *  the reading under the pointer (or the arrow keys) shown. */
 function LineChart({ label, unit, values, times, digits = 1 }: { label: string; unit: string; values: (number | null)[]; times: string[]; digits?: number }) {
-  const pts = values.map((v, i) => (v == null ? null : { i, v }));
-  const nums = values.filter((v): v is number => v != null);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(300);
+  const [hover, setHover] = useState<number | null>(null);
+  useEffect(() => {
+    if (!box) return;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(120, e.contentRect.width)));
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [box]);
+  // More readings, more averaging: about 5 readings (25 minutes) per day shown, at most 15.
+  const smoothed = useMemo(() => smooth(values, Math.min(15, Math.max(5, Math.round(values.length / 25)) | 1)), [values]);
+  const nums = smoothed.filter((v): v is number => v != null);
   if (nums.length < 2) return null;
+  const raw = values.filter((v): v is number => v != null);
   const min = Math.min(...nums);
   const max = Math.max(...nums);
   const span = max - min || 1;
-  const W = 300;
-  const H = 70;
-  const x = (i: number) => (i / Math.max(1, values.length - 1)) * W;
+  const H = 80;
+  const x = (i: number) => (i / Math.max(1, values.length - 1)) * width;
   const y = (v: number) => H - 6 - ((v - min) / span) * (H - 12);
-  let d = "";
-  let pen = false;
-  for (const p of pts) {
-    if (!p) {
-      pen = false;
-      continue;
-    }
-    d += `${pen ? "L" : "M"}${x(p.i).toFixed(1)} ${y(p.v).toFixed(1)}`;
-    pen = true;
-  }
-  const last = nums[nums.length - 1];
+  const d = curve(smoothed.map((v, i) => (v == null ? null : { x: x(i), y: y(v) })));
+  const last = raw[raw.length - 1];
   const fmt = (t: string) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  // The nearest reading that has a value.
+  const nearest = (i: number) => {
+    for (let k = 0; k < values.length; k++) {
+      for (const j of [i - k, i + k]) if (j >= 0 && j < values.length && values[j] != null) return j;
+    }
+    return null;
+  };
+  const pick = (clientX: number) => {
+    if (!box) return;
+    const r = box.getBoundingClientRect();
+    setHover(nearest(Math.round(((clientX - r.left) / r.width) * (values.length - 1))));
+  };
+  const h = hover != null && values[hover] != null ? hover : null;
+  const hx = h != null ? x(h) : 0;
+  const hy = h != null && smoothed[h] != null ? y(smoothed[h]!) : 0;
   return (
     <figure className="min-w-0 space-y-1">
       <figcaption className="flex items-baseline justify-between gap-2 text-xs">
         <span className="font-medium">{label}</span>
-        <span className="tabular-nums text-muted">
-          now {last.toFixed(digits)} {unit} · {min.toFixed(digits)}–{max.toFixed(digits)}
+        {/* While pointing at the chart: the reading there, in place of the summary. */}
+        <span className="truncate tabular-nums text-muted" aria-live="polite">
+          {h != null ? (
+            <>
+              <span className="font-semibold text-ink">
+                {values[h]!.toFixed(digits)} {unit}
+              </span>{" "}
+              · {fmt(times[h])}
+            </>
+          ) : (
+            <>
+              now {last.toFixed(digits)} {unit} · {Math.min(...raw).toFixed(digits)}–{Math.max(...raw).toFixed(digits)}
+            </>
+          )}
         </span>
       </figcaption>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-20 w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label={`${label}, from ${min.toFixed(digits)} to ${max.toFixed(digits)} ${unit}`}>
-        <line x1="0" x2={W} y1={y(max)} y2={y(max)} className="stroke-line" strokeDasharray="3 4" vectorEffect="non-scaling-stroke" />
-        <line x1="0" x2={W} y1={y(min)} y2={y(min)} className="stroke-line" strokeDasharray="3 4" vectorEffect="non-scaling-stroke" />
-        <path d={d} fill="none" className="stroke-accent" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      </svg>
+      <div
+        ref={setBox}
+        className="relative touch-pan-y select-none outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        tabIndex={0}
+        role="img"
+        aria-label={`${label}, from ${Math.min(...raw).toFixed(digits)} to ${Math.max(...raw).toFixed(digits)} ${unit}. Use the arrow keys to read values.`}
+        onPointerMove={(e) => pick(e.clientX)}
+        onPointerDown={(e) => pick(e.clientX)}
+        onPointerLeave={() => setHover(null)}
+        onBlur={() => setHover(null)}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
+          e.preventDefault();
+          const from = h ?? values.length - 1;
+          const to = e.key === "Home" ? 0 : e.key === "End" ? values.length - 1 : from + (e.key === "ArrowLeft" ? -1 : 1);
+          setHover(nearest(Math.min(values.length - 1, Math.max(0, to))));
+        }}
+      >
+        <svg width={width} height={H} viewBox={`0 0 ${width} ${H}`} className="block overflow-visible">
+          <line x1="0" x2={width} y1={y(max)} y2={y(max)} className="stroke-line" strokeDasharray="3 4" />
+          <line x1="0" x2={width} y1={y(min)} y2={y(min)} className="stroke-line" strokeDasharray="3 4" />
+          <path d={d} fill="none" className="stroke-accent" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          {h != null && (
+            <>
+              <line x1={hx} x2={hx} y1="0" y2={H} className="stroke-muted" strokeWidth="1" strokeDasharray="2 3" />
+              <circle cx={hx} cy={hy} r="4" className="fill-accent stroke-surface" strokeWidth="2" />
+            </>
+          )}
+        </svg>
+      </div>
       <div className="flex justify-between text-[10px] text-muted">
         <span>{fmt(times[0])}</span>
         <span>{fmt(times[times.length - 1])}</span>

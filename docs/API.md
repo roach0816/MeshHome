@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.10**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.11**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -588,7 +588,7 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 | `GET /api/settings/notifications` | `{"sound": "off" \| "all" \| "dms"}` (browser notification sound). |
 | `GET /api/settings/map` | Map tile URL, attribution, maximum zoom, and `place_names` (look up place names for node positions). |
 | `GET /api/settings/app-install` | "Install as an app": `{"enabled": false, "https": true}`. `https` says whether this request reached the server over HTTPS (directly or through a proxy that sends `X-Forwarded-Proto: https`). While `enabled`, `/manifest.webmanifest` serves the web app manifest; otherwise it answers `404`. |
-| `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone"}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
+| `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone", "env": true}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, `/env` (when `env` is true and an environment sensor is working; see `GET /api/sensors`), and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
 | `GET /api/settings/radio` | Radio connection settings: `mode` (`tcp`, `simulated` or `none`), `host`, `port`, `paused`, `sim_interval_seconds`. |
 | `GET /api/radio/config` | The connected node's configuration: identity, LoRa parameters, channels (names and key *types*, never keys), behaviour and telemetry. `409` if the radio is offline. |
 | `GET /api/radio/channels/hashtag-key?name=%23hikers` | The key of a public `#hashtag` channel, derived from its name: `{"name", "hex", "base64"}`. |
@@ -745,7 +745,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

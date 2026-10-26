@@ -53,7 +53,7 @@ async def test_bot_answers_commands_from_allowed_contacts(client, monkeypatch):
     bot._recent.clear()
     await do_setup(client)
     await _connected_conversations(client)
-    assert (await client.get("/api/settings/bot")).json() == {"enabled": False, "allow": "favorites"}
+    assert (await client.get("/api/settings/bot")).json() == {"enabled": False, "allow": "favorites", "env": True}
 
     # Off by default: the command is archived, nothing is sent.
     await _send_to_node("tracker", "/info")

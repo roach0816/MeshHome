@@ -241,19 +241,20 @@ class Sensors:
         }
 
     def env_reply(self, units: str = "metric") -> str:
+        """The /env reply, e.g. "🌡️ 21.4°C · 💧 48% RH · ⏲️ 1013.2 hPa · 🍃 air 120 kΩ"."""
         e = self.env_fresh()
         if not e:
             return "No environment readings on this node right now."
         imperial = units == "imperial"
         t = e["temperature_c"]
-        parts = [f"{t * 9 / 5 + 32:.1f}°F" if imperial else f"{t:.1f}°C"]
+        parts = [f"🌡️ {t * 9 / 5 + 32:.1f}°F" if imperial else f"🌡️ {t:.1f}°C"]
         if e.get("humidity") is not None:
-            parts[0] += f" {e['humidity']:.0f}% RH"
+            parts.append(f"💧 {e['humidity']:.0f}% RH")
         if e.get("pressure_hpa") is not None:
             p = e["pressure_hpa"]
-            parts.append(f"{p * 0.0295300:.2f} inHg" if imperial else f"{p:.1f} hPa")
+            parts.append(f"⏲️ {p * 0.0295300:.2f} inHg" if imperial else f"⏲️ {p:.1f} hPa")
         if e.get("gas_ohms"):
-            parts.append(f"air {e['gas_ohms'] / 1000:.0f} kΩ")
+            parts.append(f"🍃 air {e['gas_ohms'] / 1000:.0f} kΩ")
         age = time.time() - e["at"]
         text = " · ".join(parts)
         return text if age < FRESH_SECONDS else f"{text} (as of {int(age // 60)} min ago)"

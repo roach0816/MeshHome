@@ -149,6 +149,9 @@ message:
 - `/info`: the node's name, MeshHome version, time online, radio settings and contact count.
 - `/ping`: how your message arrived (SNR, RSSI, hops or direct route).
 - `/help`: the list of commands, including those added by apps.
+- `/env`: the readings of the environment sensor on this Pi ([Sensors on the Pi](#sensors-on-the-pi)),
+  such as `🌡️ 21.4°C · 💧 48% RH · ⏲️ 1013.2 hPa · 🍃 air 120 kΩ`. **Answer /env**, beside it in the
+  command list, turns it off; when it's on it follows **Who can use it** like the other commands.
 
 **Apps** add more commands. Choose **Browse apps** in Settings → Bot to open the
 [app catalog](https://github.com/roach0816/MeshHome-apps), and filter it by category; the categories
@@ -203,8 +206,9 @@ MeshHome does.
   sets the radio's location when you've moved further than the distance you choose (at most every
   10 minutes, to spare the radio's flash). Whether adverts share the location is still set in the
   radio's settings.
-- **`/env`**: the bot answers with the latest readings, such as `21.4°C 48% RH · 1013.2 hPa · air
-  120 kΩ`.
+- **`/env`**: the bot answers with the latest readings, such as `🌡️ 21.4°C · 💧 48% RH · ⏲️ 1013.2
+  hPa · 🍃 air 120 kΩ`, to the contacts allowed under Settings → Bot (where **Answer /env** turns it
+  off).
 - **Units:** metric (°C, hPa, metres) or imperial (°F, inHg, feet), for the page and `/env`.
 
 To use the GPS on a Raspberry Pi, the serial port must be on and its login console off

@@ -184,11 +184,11 @@ async def handle(message_id: uuid.UUID, *, connected_since: float | None = None)
         conv = await s.get(Conversation, conv.id)
         radio = await s.get(Radio, conv.radio_id)
         # /env answers from the environment sensor on this Pi, when there is one (services/sensors.py).
-        env = command == "env" and sensors.manager.env_status == "ok"
+        env = command == "env" and cfg.env and sensors.manager.env_status == "ok"
         app = None if command in COMMANDS or env else await bot_apps.find_command(s, command)
         if command == "help":
             listed = {k: (f"/{k}", v) for k, v in COMMANDS.items()}
-            if sensors.manager.env_status == "ok":
+            if cfg.env and sensors.manager.env_status == "ok":
                 listed["env"] = ("/env", "temperature, humidity and pressure here")
             for a in await bot_apps.installed(s):
                 if a.enabled:

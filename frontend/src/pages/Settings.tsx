@@ -34,7 +34,7 @@ import { ApiKeysSection } from "../components/ApiKeys";
 import { BackupSection } from "../components/BackupRestore";
 import { RadioHatPanel, useRadioHat } from "../components/RadioHat";
 import { FirmwareBadge, useRadioFirmware } from "../components/RadioFirmware";
-import { api, type AppInstall, type Device, type MapConfig, type RadioConfig, type RadioMode } from "../lib/api";
+import { api, type AppInstall, type Device, type MapConfig, type RadioConfig, type RadioMode, type SensorsState } from "../lib/api";
 import {
   disablePush,
   enablePush,
@@ -939,7 +939,7 @@ function NotificationsSection() {
   );
 }
 
-type BotConfig = { enabled: boolean; allow: "favorites" | "everyone" };
+type BotConfig = { enabled: boolean; allow: "favorites" | "everyone"; env: boolean };
 
 const BOT_COMMANDS: [string, string][] = [
   ["/info", "Node name, version, uptime, radio settings, contacts"],
@@ -959,6 +959,9 @@ function BotSection() {
     onSettled: () => setPending(null),
   });
   const c = pending ?? cfg.data;
+  // /env answers from the environment sensor on this Pi (Settings → Sensors), when there is one.
+  const sensors = useQuery({ queryKey: ["sensors"], queryFn: () => api<SensorsState>("/api/sensors") });
+  const envSensor = sensors.data?.environment.status;
   return (
     <Section
       title="Bot"
@@ -1029,6 +1032,28 @@ function BotSection() {
                 <dd className="text-muted">{what}</dd>
               </div>
             ))}
+            <div className="flex gap-3 border-t border-line pt-1.5">
+              <dt className="w-20 shrink-0 font-mono font-medium">/env</dt>
+              <dd className="min-w-0 flex-1">
+                <label className={cx("flex cursor-pointer items-start gap-2", !c.enabled && "cursor-not-allowed opacity-60")}>
+                  <input
+                    type="checkbox"
+                    disabled={!c.enabled}
+                    checked={c.env}
+                    onChange={(e) => save.mutate({ ...c, env: e.target.checked })}
+                    className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+                  />
+                  <span>
+                    <span className="block text-ink">Answer /env</span>
+                    <span className="block text-xs text-muted">
+                      {envSensor === "ok"
+                        ? "Temperature, humidity, pressure and air quality from this Pi's environment sensor, for the contacts allowed above."
+                        : "No environment sensor is working on this Pi (Settings → Sensors), so /env isn't answered."}
+                    </span>
+                  </span>
+                </label>
+              </dd>
+            </div>
           </dl>
           <p className="text-xs text-muted">Apps below add more commands.</p>
           <ErrorText error={save.error} />
