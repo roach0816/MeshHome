@@ -20,6 +20,9 @@ tablet or computer on your network.
   delivery states (*Sent by radio*, *Delivered*, …), and live updates in every open browser.
 - **Signed messages:** sign what you post in a channel, see who really sent each signed message
   (compatible with MeshOS), and share your contact so others can trust yours.
+- **Sensors on the Pi:** temperature, humidity, pressure and air quality from a BME680, and GPS
+  position (which can keep your node's location up to date), with history charts and a `/env` bot
+  command.
 - **Message insight:** details for every message (SNR, RSSI, hops) and the paths it took through the
   mesh, with repeaters named from your contacts.
 - **Contacts and map:** a searchable contact list that follows the radio's adverts, and a map of every

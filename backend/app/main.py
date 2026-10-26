@@ -25,6 +25,7 @@ from app.api import (
     radio,
     radio_config,
     remote,
+    sensors,
     system,
 )
 from app.api import (
@@ -36,6 +37,7 @@ from app.radio.supervisor import supervisor
 from app.realtime import hub
 from app.services import app_settings, diagnostics, updates, web_push
 from app.services import bot_apps as bot_apps_service
+from app.services import sensors as sensors_service
 
 log = logging.getLogger("meshhome")
 
@@ -65,6 +67,7 @@ async def lifespan(app: FastAPI):
         )
     supervisor.start()
     web_push.start()
+    sensors_service.manager.start()
     update_task = asyncio.create_task(_update_check_loop(), name="update-check")
     diag_task = asyncio.create_task(diagnostics.loop(), name="diagnostics")
     try:
@@ -72,6 +75,7 @@ async def lifespan(app: FastAPI):
     finally:
         update_task.cancel()
         diag_task.cancel()
+        await sensors_service.manager.stop()
         await supervisor.stop()
         await web_push.stop()
         hub.close_all()
@@ -143,6 +147,7 @@ app.include_router(radio_config.router)
 app.include_router(system.router)
 app.include_router(api_keys.router)
 app.include_router(remote.router)
+app.include_router(sensors.router)
 app.include_router(firmware.router)
 app.include_router(backup.router)
 app.include_router(meta.router)

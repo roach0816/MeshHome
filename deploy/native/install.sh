@@ -2189,7 +2189,19 @@ sync_units() {  # --sync-units: run as root by meshhome.service (ExecStartPre=+)
   write_network_snapshot
   lan_discovery_retire
   nginx_push_refresh || true
+  sensor_access || true
   return 0
+}
+
+sensor_access() {  # the app reads sensors attached to the Pi (I2C bus, serial port): its user joins
+  # those groups where they exist (Raspberry Pi OS has both; plain Debian has dialout). Takes effect
+  # for the app process this start launches.
+  local g
+  for g in i2c dialout; do
+    getent group "$g" >/dev/null 2>&1 || continue
+    id -nG "$APP_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$g" && continue
+    usermod -aG "$g" "$APP_USER" >>"$LOG_FILE" 2>&1 && log "sensors: added $APP_USER to the $g group (to read sensors on the Pi)"
+  done
 }
 
 # ---- optional radio HAT (RAK6421 + RAK13300) driven by ZephCore --------------------------------

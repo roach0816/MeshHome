@@ -188,6 +188,31 @@ last heard, its position and the town there, and its distance from your radio, p
 manage** or **Send message**. The town is looked up from OpenStreetMap Nominatim; turn that off in
 **Settings → Map → Place names**.
 
+## Sensors on the Pi
+
+On a Raspberry Pi install, MeshHome reads sensors attached to the Pi itself (**Settings → Sensors**),
+such as the WisBlock modules on a RAK6421 HAT. The radio software on the HAT doesn't read them, so
+MeshHome does.
+
+- **Environment sensor:** a BME680 (e.g. a RAK1906 in sensor slot B, C or D) on I²C bus 1, found
+  automatically at address 0x76 or 0x77. Temperature, humidity, pressure and air quality (gas
+  resistance) live, and charts over 24 hours, 7 days or 30 days (a reading is stored every 5
+  minutes and kept for 30 days).
+- **GPS:** a receiver that sends NMEA at 9600 baud on a serial port (e.g. a RAK12501 in slot A, on
+  `/dev/serial0` on a Pi 4, `/dev/ttyAMA0` on a Pi 5, chosen automatically): fix, satellites, position and altitude. **Keep my node's location from the GPS**
+  sets the radio's location when you've moved further than the distance you choose (at most every
+  10 minutes, to spare the radio's flash). Whether adverts share the location is still set in the
+  radio's settings.
+- **`/env`**: the bot answers with the latest readings, such as `21.4°C 48% RH · 1013.2 hPa · air
+  120 kΩ`.
+- **Units:** metric (°C, hPa, metres) or imperial (°F, inHg, feet), for the page and `/env`.
+
+To use the GPS on a Raspberry Pi, the serial port must be on and its login console off
+(`sudo raspi-config` → Interface Options → Serial Port: login shell **No**, hardware **Yes**, then
+reboot). I²C must be on too (Interface Options → I2C). The page says what's missing when a sensor
+isn't found or isn't sending. Other nodes' telemetry requests are still answered by the radio, so
+they don't include these readings.
+
 ## Settings and administration
 
 - **Radio connection:** MeshCore TCP, the Raspberry Pi radio HAT (native installs), Simulated (sample

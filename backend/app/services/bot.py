@@ -24,7 +24,7 @@ from app import db
 from app.config import APP_VERSION, get_settings
 from app.models import Contact, Conversation, Message, Radio
 from app.realtime import hub
-from app.services import app_settings, bot_apps, bot_recipes, messaging
+from app.services import app_settings, bot_apps, bot_recipes, messaging, sensors
 
 log = logging.getLogger(__name__)
 
@@ -183,9 +183,13 @@ async def handle(message_id: uuid.UUID, *, connected_since: float | None = None)
     async with db.session_factory()() as s:
         conv = await s.get(Conversation, conv.id)
         radio = await s.get(Radio, conv.radio_id)
-        app = None if command in COMMANDS else await bot_apps.find_command(s, command)
+        # /env answers from the environment sensor on this Pi, when there is one (services/sensors.py).
+        env = command == "env" and sensors.manager.env_status == "ok"
+        app = None if command in COMMANDS or env else await bot_apps.find_command(s, command)
         if command == "help":
             listed = {k: (f"/{k}", v) for k, v in COMMANDS.items()}
+            if sensors.manager.env_status == "ok":
+                listed["env"] = ("/env", "temperature, humidity and pressure here")
             for a in await bot_apps.installed(s):
                 if a.enabled:
                     for c in a.recipe.commands:
@@ -193,6 +197,8 @@ async def handle(message_id: uuid.UUID, *, connected_since: float | None = None)
             reply = "Commands: " + ", ".join(f"{k} ({v})" for k, v in listed.values())
         elif app is not None:
             reply = await _app_reply(app, command, arg)
+        elif env:
+            reply = sensors.manager.env_reply((await app_settings.get_sensors_config(s)).units)
         elif command == "info":
             reply = await _info(s, radio, connected_since)
         elif command == "ping":

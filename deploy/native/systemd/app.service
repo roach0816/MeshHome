@@ -29,7 +29,13 @@ ProtectSystem=strict
 ReadWritePaths=@STATE_DIR@
 ProtectHome=true
 PrivateTmp=true
-PrivateDevices=true
+# Devices: none, except the I2C bus and serial ports, for sensors attached to the Pi (an
+# environment sensor and a GPS; app/services/sensors.py). The app's user is in the i2c and
+# dialout groups where they exist (install.sh --sync-units).
+DevicePolicy=closed
+DeviceAllow=char-i2c rw
+DeviceAllow=char-ttyS rw
+DeviceAllow=char-ttyAMA rw
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

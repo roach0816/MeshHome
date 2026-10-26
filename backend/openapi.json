@@ -3397,6 +3397,114 @@
         }
       }
     },
+    "/api/sensors": {
+      "get": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "Get Sensors",
+        "operationId": "get_sensors_api_sensors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensorsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sensors/history": {
+      "get": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "Sensor History",
+        "description": "Stored readings (one every 5 minutes), averaged into at most 300 points.",
+        "operationId": "sensor_history_api_sensors_history_get",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 24,
+              "title": "Hours"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/sensors": {
+      "put": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "Put Sensors",
+        "operationId": "put_sensors_api_settings_sensors_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensorsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensorsConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/radio/firmware": {
       "get": {
         "tags": [
@@ -5807,6 +5915,96 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HistoryOut": {
+        "properties": {
+          "hours": {
+            "type": "integer",
+            "title": "Hours"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hours",
+          "points"
+        ],
+        "title": "HistoryOut"
+      },
+      "HistoryPoint": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          },
+          "humidity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity"
+          },
+          "pressure_hpa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Hpa"
+          },
+          "gas_ohms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gas Ohms"
+          },
+          "satellites": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Satellites"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at"
+        ],
+        "title": "HistoryPoint"
+      },
       "InstallIn": {
         "properties": {
           "settings": {
@@ -7103,6 +7301,73 @@
           "body"
         ],
         "title": "SendRequest"
+      },
+      "SensorsConfig": {
+        "properties": {
+          "environment": {
+            "type": "boolean",
+            "title": "Environment",
+            "default": true
+          },
+          "gnss": {
+            "type": "boolean",
+            "title": "Gnss",
+            "default": true
+          },
+          "gnss_device": {
+            "type": "string",
+            "pattern": "^/dev/[A-Za-z0-9_./-]{1,40}$",
+            "title": "Gnss Device",
+            "default": "/dev/serial0"
+          },
+          "update_location": {
+            "type": "boolean",
+            "title": "Update Location",
+            "default": false
+          },
+          "location_min_move_m": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 20.0,
+            "title": "Location Min Move M",
+            "default": 100
+          },
+          "units": {
+            "type": "string",
+            "enum": [
+              "metric",
+              "imperial"
+            ],
+            "title": "Units",
+            "default": "metric"
+          }
+        },
+        "type": "object",
+        "title": "SensorsConfig"
+      },
+      "SensorsOut": {
+        "properties": {
+          "environment": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Environment"
+          },
+          "gnss": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Gnss"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SensorsConfig"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environment",
+          "gnss",
+          "config"
+        ],
+        "title": "SensorsOut"
       },
       "SessionInfo": {
         "properties": {

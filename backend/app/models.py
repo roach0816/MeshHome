@@ -277,3 +277,21 @@ class AuditEvent(Base):
     at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     kind: Mapped[str] = mapped_column(String(64))
     detail: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
+class SensorReading(Base):
+    """A reading from the sensors attached to this Pi (services/sensors.py), every few minutes, for
+    history. Any value can be missing (a sensor not fitted, or no GPS fix)."""
+
+    __tablename__ = "sensor_readings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    temperature_c: Mapped[float | None] = mapped_column(Float)
+    humidity: Mapped[float | None] = mapped_column(Float)
+    pressure_hpa: Mapped[float | None] = mapped_column(Float)
+    gas_ohms: Mapped[float | None] = mapped_column(Float)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lon: Mapped[float | None] = mapped_column(Float)
+    alt_m: Mapped[float | None] = mapped_column(Float)
+    satellites: Mapped[int | None] = mapped_column(Integer)

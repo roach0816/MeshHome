@@ -146,6 +146,21 @@ The radio HAT has been tested end to end in Debian 13 containers against the rea
 but not yet on real RAK6421 hardware. Treat the radio side as unverified until it has run on a real
 HAT.
 
+### Sensors on the HAT
+
+The HAT's sensor slots can carry WisBlock sensors that MeshHome reads
+([Sensors on the Pi](features.md#sensors-on-the-pi)): a BME680 environment sensor (RAK1906) in slot
+B, C or D, and a GPS (RAK12501) in slot A, the long slot. Power the Pi off before fitting a module,
+and press long modules in at both ends until they snap in.
+
+- **I²C** must be on (`sudo raspi-config` → Interface Options → I2C). `sudo i2cdetect -y 1` should
+  show the BME680 at `76` (or `77`).
+- **The serial port** must be on, with its login console off: `sudo raspi-config` → Interface
+  Options → Serial Port, login shell **No**, hardware **Yes**, then reboot. The GPS then sends at
+  9600 baud on `/dev/serial0` (`ttyS0`) on a Pi 4, or `/dev/ttyAMA0` on a Pi 5, which MeshHome
+  picks automatically.
+- MeshHome's service joins the `i2c` and `dialout` groups by itself when it starts.
+
 ## HTTPS
 
 Without HTTPS, the Pi serves **plain HTTP** on port 8080. Passwords and session cookies then cross

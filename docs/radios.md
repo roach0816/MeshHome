@@ -60,6 +60,9 @@ On a native install, a Raspberry Pi 4 or 5 can carry the radio itself (RAK6421 H
 module), and MeshHome installs and runs the radio software for you. See
 [Radio HAT on the Pi](install-native.md#radio-hat-on-the-pi-rak6421).
 
+Sensors fitted to the HAT's sensor slots (a BME680 environment sensor, a GPS) are read by MeshHome:
+see [Sensors on the Pi](features.md#sensors-on-the-pi).
+
 ## Troubleshooting
 
 On a Raspberry Pi or Debian install, start with `sudo meshhome status`

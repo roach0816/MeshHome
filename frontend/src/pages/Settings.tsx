@@ -23,10 +23,12 @@ import {
   Sparkles,
   Trash2,
   Volume2,
+  Thermometer,
 } from "lucide-react";
 import { playChime, type SoundSetting } from "../lib/sound";
 import { useUpdateInfo } from "../lib/queries";
 import { BotAppsSection } from "../components/BotApps";
+import { SensorsSection } from "../components/SensorsSection";
 import { NetworkSection } from "../components/NetworkSettings";
 import { ApiKeysSection } from "../components/ApiKeys";
 import { BackupSection } from "../components/BackupRestore";
@@ -61,7 +63,7 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 
 // ---- layout: categories in a sidebar (wide screens) or a menu to tap into (phones) ------------
 
-type CategoryId = "radio" | "notifications" | "app" | "map" | "bot" | "network" | "software" | "api" | "data";
+type CategoryId = "radio" | "sensors" | "notifications" | "app" | "map" | "bot" | "network" | "software" | "api" | "data";
 
 interface Category {
   id: CategoryId;
@@ -74,6 +76,7 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   { id: "radio", label: "Radio", sub: "Connection and device", icon: RadioIcon },
+  { id: "sensors", label: "Sensors", sub: "Environment and GPS", icon: Thermometer },
   { id: "notifications", label: "Notifications", sub: "Sounds and alerts", icon: Bell },
   { id: "app", label: "App & appearance", sub: "Theme and installing", icon: Palette },
   { id: "map", label: "Map", sub: "Tiles and place names", icon: MapIcon },
@@ -217,6 +220,8 @@ function CategoryContent({ id }: { id: CategoryId }) {
           {httpsPage() && <AppInstallSection />}
         </>
       );
+    case "sensors":
+      return <SensorsSection />;
     case "map":
       return <MapSection />;
     case "bot":

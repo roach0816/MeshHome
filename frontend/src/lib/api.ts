@@ -663,3 +663,50 @@ export interface BotAppsState {
   /** The catalog's categories, from its apps. */
   categories: string[];
 }
+
+// ---- sensors attached to the Pi (GET /api/sensors) ----------------------------------------------
+
+export interface SensorsConfig {
+  environment: boolean;
+  gnss: boolean;
+  gnss_device: string;
+  update_location: boolean;
+  location_min_move_m: number;
+  units: "metric" | "imperial";
+}
+
+export interface EnvReading {
+  temperature_c: number;
+  humidity: number | null;
+  pressure_hpa: number | null;
+  gas_ohms: number | null;
+  at: number;
+}
+
+export interface GnssReading {
+  fix?: boolean;
+  lat?: number;
+  lon?: number;
+  alt_m?: number;
+  satellites?: number | null;
+  hdop?: number;
+  utc?: string;
+  at?: number;
+  fix_at?: number;
+}
+
+export interface SensorsState {
+  environment: { status: "off" | "not_found" | "ok" | "error"; address: number | null; reading: EnvReading | null };
+  gnss: {
+    status: "off" | "not_found" | "silent" | "no_fix" | "fix" | "error";
+    device: string | null;
+    reading: GnssReading | null;
+    location_update: { at: number; lat: number; lon: number; moved_m: number | null } | null;
+  };
+  config: SensorsConfig;
+}
+
+export interface SensorHistory {
+  hours: number;
+  points: { at: string; temperature_c: number | null; humidity: number | null; pressure_hpa: number | null; gas_ohms: number | null }[];
+}

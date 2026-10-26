@@ -106,6 +106,19 @@ class WeatherConfig(BaseModel):
         return v
 
 
+class SensorsConfig(BaseModel):
+    # Sensors attached to this Pi (services/sensors.py): read them when they're found.
+    environment: bool = True  # a BME680 on I2C (e.g. a RAK1906 in a RAK6421 sensor slot)
+    gnss: bool = True  # a GPS/GNSS receiver sending NMEA on a serial port (e.g. a RAK12501)
+    gnss_device: str = Field(default="/dev/serial0", pattern=r"^/dev/[A-Za-z0-9_./-]{1,40}$")
+    # Keep the radio's advertised location up to date from the GPS, when it has moved this far.
+    update_location: bool = False
+    location_min_move_m: int = Field(default=100, ge=20, le=10000)
+    # How readings are shown (Settings → Sensors and the /env bot reply). Stored values stay metric.
+    units: Literal["metric", "imperial"] = "metric"
+
+
+SENSORS_KEY = "sensors"
 WEATHER_KEY = "weather"
 RADIO_KEY = "radio"
 MAP_KEY = "map"
@@ -196,6 +209,15 @@ async def get_weather_config(db: AsyncSession) -> WeatherConfig:
 
 async def put_weather_config(db: AsyncSession, cfg: WeatherConfig) -> None:
     await _put(db, WEATHER_KEY, cfg.model_dump())
+
+
+async def get_sensors_config(db: AsyncSession) -> SensorsConfig:
+    raw = await _get(db, SENSORS_KEY)
+    return SensorsConfig.model_validate(raw) if raw else SensorsConfig()
+
+
+async def put_sensors_config(db: AsyncSession, cfg: SensorsConfig) -> None:
+    await _put(db, SENSORS_KEY, cfg.model_dump())
 
 
 async def get_installation(db: AsyncSession) -> InstallationConfig:

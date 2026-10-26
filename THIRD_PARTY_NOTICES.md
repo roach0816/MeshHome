@@ -10,6 +10,8 @@ this repository. The main ones are listed below. Full license texts ship with ea
 | SQLAlchemy, Alembic | MIT |
 | asyncpg | Apache-2.0 |
 | argon2-cffi | MIT |
+| bme680 (Pimoroni), smbus2 | MIT |
+| pyserial | BSD-3-Clause |
 | React, React DOM, React Router | MIT |
 | TanStack Query | MIT |
 | Tailwind CSS | MIT |

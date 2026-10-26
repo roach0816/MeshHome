@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.9**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.10**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -583,6 +583,8 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 
 | Request | Returns |
 | --- | --- |
+| `GET /api/sensors` | Sensors attached to the Pi: `{"environment": {"status": "ok", "address": 118, "reading": {"temperature_c": 21.4, "humidity": 48.0, "pressure_hpa": 1013.2, "gas_ohms": 120000, "at": 1792980817}}, "gnss": {"status": "fix", "device": "/dev/serial0", "reading": {"fix": true, "lat": …, "lon": …, "alt_m": …, "satellites": 9, "at": …}, "location_update": null}, "config": {...}}`. Status: `off`, `not_found`, `ok`/`fix`, `no_fix`, `silent` (GPS not sending) or `error`. |
+| `GET /api/sensors/history?hours=24` | Stored readings (every 5 minutes, kept 30 days), averaged into at most 300 points: `{"hours": 24, "points": [{"at": "…", "temperature_c": …, "humidity": …, "pressure_hpa": …, "gas_ohms": …}]}`. `hours` is 1–720. |
 | `GET /api/settings/notifications` | `{"sound": "off" \| "all" \| "dms"}` (browser notification sound). |
 | `GET /api/settings/map` | Map tile URL, attribution, maximum zoom, and `place_names` (look up place names for node positions). |
 | `GET /api/settings/app-install` | "Install as an app": `{"enabled": false, "https": true}`. `https` says whether this request reached the server over HTTPS (directly or through a proxy that sends `X-Forwarded-Proto: https`). While `enabled`, `/manifest.webmanifest` serves the web app manifest; otherwise it answers `404`. |
@@ -743,7 +745,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,
