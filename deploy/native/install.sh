@@ -1226,10 +1226,11 @@ write_network_snapshot() {  # non-secret view of the configuration for the app (
   [[ -z $saved && -f $CF_CREDENTIALS ]] && saved=cloudflare
   python3 - "$NETWORK_SNAPSHOT" "$(env_get PORT)" "$(env_get HOST)" "$enabled" "$(env_get HTTPS_HOST)" \
     "$(env_get HTTPS_PORT)" "$(env_get HTTPS_REDIRECT)" "$(env_get CERTBOT_EMAIL)" "$(env_get CERTBOT_STAGING)" \
-    "$(env_get CF_PROPAGATION)" "$saved" "$pkgs" "$renew" "${provider:-cloudflare}" "${client:-}" <<'PY' || true
+    "$(env_get CF_PROPAGATION)" "$saved" "$pkgs" "$renew" "${provider:-cloudflare}" "${client:-}" \
+    "$(env_get HTTPS_ALT_HOST)" <<'PY' || true
 import json, os, sys, time
 (path, port, host, enabled, https_host, https_port, redirect, email, staging, prop, saved, pkgs, renew,
- provider, client) = sys.argv[1:16]
+ provider, client, alt_host) = sys.argv[1:17]
 def num(v, d):
     try:
         return int(v)
@@ -1240,6 +1241,7 @@ data = {
     "bind": host or "0.0.0.0",
     "https_enabled": enabled == "1",
     "hostname": https_host or None,
+    "alt_hostname": alt_host or None,  # a second name on the same certificate (e.g. Wi-Fi vs Ethernet)
     "https_port": num(https_port, 443),
     "redirect_http": redirect != "0",
     "email": email or None,
@@ -1439,11 +1441,19 @@ lego_install() {  # download and verify the pinned lego release (once per versio
   ok "Installed lego $LEGO_VERSION (checksum verified)"
 }
 
+cert_names_match() {  # cert_names_match CERT NAME... — the certificate is for exactly these names
+  local cert=$1 have want; shift
+  have=$(openssl x509 -noout -ext subjectAltName -in "$cert" 2>/dev/null | grep -oiE 'DNS:[^,[:space:]]+' |
+    cut -d: -f2 | tr 'A-Z' 'a-z' | sort -u) || return 1
+  want=$(printf '%s\n' "$@" | sort -u)
+  [[ -n $have && $have == "$want" ]]
+}
+
 acme_cert_path() { printf '%s/certificates/%s.crt' "$ACME_DATA" "$1"; }
 acme_key_path() { printf '%s/certificates/%s.key' "$ACME_DATA" "$1"; }
 
-acme_lego_args() {  # acme_lego_args HOST EMAIL STAGING PROPAGATION — fills LEGO_ARGS for `lego run`
-  local host=$1 email=$2 staging=$3 prop=$4 provider lego_code server dns envfile
+acme_lego_args() {  # acme_lego_args HOST EMAIL STAGING PROPAGATION [ALT_HOST] — fills LEGO_ARGS for `lego run`
+  local host=$1 email=$2 staging=$3 prop=$4 alt=${5:-} provider lego_code server dns envfile
   provider=$(env_get ACME_PROVIDER); provider=${NEW_PROVIDER:-${provider:-cloudflare}}
   lego_code=$(acme_py get "$provider" lego) || return 1
   server=$(override MESHHOME_ACME_SERVER)
@@ -1453,7 +1463,8 @@ acme_lego_args() {  # acme_lego_args HOST EMAIL STAGING PROPAGATION — fills LE
   if [[ -n $(override MESHHOME_ACME_DNS_OVERRIDE) ]]; then
     dns=$(override MESHHOME_ACME_DNS_OVERRIDE) envfile=$(override MESHHOME_ACME_TEST_ENV_FILE)
   fi
-  LEGO_ARGS=(run --accept-tos --server "$server" -d "$host" --cert.name "$host" --dns "$dns"
+  # One certificate, named after the hostname, covers the second hostname too.
+  LEGO_ARGS=(run --accept-tos --server "$server" -d "$host" ${alt:+-d "$alt"} --cert.name "$host" --dns "$dns"
     --env-file "$envfile" --path "$ACME_DATA" --log.format text --no-random-sleep
     --deploy-hook "$PREFIX/current/deploy/native/tls-hook")
   if [[ -n $email ]]; then LEGO_ARGS+=(-m "$email"); else LEGO_ARGS+=(--account-id meshcore-home); fi
@@ -1495,7 +1506,8 @@ acme_renew() {  # --acme-renew: run by the renewal timer; renews when due and re
   # kept or restored certificate was reused): fetch the pinned, checksum-verified version first.
   lego_install >>"$LOG_FILE" 2>&1 || { log "acme renew: could not install lego"; return 1; }
   NEW_PROVIDER=$(env_get ACME_PROVIDER)
-  acme_lego_args "$host" "$(env_get CERTBOT_EMAIL)" "$(env_get CERTBOT_STAGING)" "$(env_get CF_PROPAGATION)" || return 1
+  acme_lego_args "$host" "$(env_get CERTBOT_EMAIL)" "$(env_get CERTBOT_STAGING)" "$(env_get CF_PROPAGATION)" \
+    "$(env_get HTTPS_ALT_HOST)" || return 1
   [[ ${1:-} == force ]] && LEGO_ARGS+=(--renew-force)
   log "\$ lego ${LEGO_ARGS[*]}"
   if env "$(acme_env)" "$(lego_bin)" "${LEGO_ARGS[@]}" >>"$LOG_FILE" 2>&1; then
@@ -1506,15 +1518,15 @@ acme_renew() {  # --acme-renew: run by the renewal timer; renews when due and re
   return 1
 }
 
-obtain_certificate() {  # obtain_certificate HOST EMAIL STAGING(0/1) PROPAGATION FORCE(0/1)
-  local host=$1 email=$2 staging=$3 prop=$4 force=$5
+obtain_certificate() {  # obtain_certificate HOST EMAIL STAGING(0/1) PROPAGATION FORCE(0/1) [ALT_HOST]
+  local host=$1 email=$2 staging=$3 prop=$4 force=$5 alt=${6:-}
   if [[ -n $(override MESHHOME_TLS_SELF_SIGNED) ]]; then
     # Testing only: a self-signed certificate instead of Let's Encrypt (browsers will warn).
     warn "MESHCORE_HOME_TLS_SELF_SIGNED is set: using a self-signed TEST certificate"
     install -d -m 755 "$CONF_DIR/tls-test"
     TLS_CERT_PATH="$CONF_DIR/tls-test/fullchain.pem" TLS_KEY_PATH="$CONF_DIR/tls-test/privkey.pem"
     run_quiet "Creating a self-signed test certificate" openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
-      -subj "/CN=$host" -addext "subjectAltName=DNS:$host" -keyout "$TLS_KEY_PATH" -out "$TLS_CERT_PATH" || return 1
+      -subj "/CN=$host" -addext "subjectAltName=DNS:$host${alt:+,DNS:$alt}" -keyout "$TLS_KEY_PATH" -out "$TLS_CERT_PATH" || return 1
     chmod 600 "$TLS_KEY_PATH"
     return 0
   fi
@@ -1522,15 +1534,25 @@ obtain_certificate() {  # obtain_certificate HOST EMAIL STAGING(0/1) PROPAGATION
   install -d -m 700 "$ACME_DIR" "$ACME_DATA"
   local provider name
   provider=${NEW_PROVIDER:-$(env_get ACME_PROVIDER)}; name=$(acme_provider_name "${provider:-cloudflare}")
-  acme_lego_args "$host" "$email" "$staging" "$prop" || return 1
+  acme_lego_args "$host" "$email" "$staging" "$prop" "$alt" || return 1
   [[ $force == 1 ]] && LEGO_ARGS+=(--renew-force)
   local wait="the DNS check can take a few minutes"
   [[ ${prop:-0} =~ ^[0-9]+$ ]] && ((prop > 0)) && wait="about ${prop}s for DNS"
+  # lego keeps an existing certificate's names when it renews, so for a different set of names
+  # (a second hostname added, changed or removed) the old one is set aside and a new one issued.
+  local aside="" f cert; cert=$(acme_cert_path "$host")
+  if [[ -f $cert ]] && ! cert_names_match "$cert" "$host" ${alt:+"$alt"}; then
+    aside=$(mktemp -d "$ACME_DATA/.previous.XXXXXX")
+    for f in "${cert%.crt}".{crt,key,issuer.crt,json,pem,pfx}; do [[ -e $f ]] && mv "$f" "$aside/"; done
+    log "certificate names changed: requesting a new certificate for $host${alt:+ and $alt}"
+  fi
   if ! run_quiet "Requesting a certificate from Let's Encrypt via $name ($wait)" env "$(acme_env)" "$(lego_bin)" "${LEGO_ARGS[@]}"; then
+    [[ -n $aside ]] && { mv "$aside"/* "$ACME_DATA/certificates/" 2>/dev/null; rm -rf "$aside"; }
     ((TUI_ON)) || tail -n 8 "$LOG_FILE" | sed 's/^/    /' >&2
-    warn "Could not obtain a certificate. Check the $name credentials and their permissions, and that $host is in a zone they manage. Details: $LOG_FILE"
+    warn "Could not obtain a certificate. Check the $name credentials and their permissions, and that $host${alt:+ and $alt} are in zones they manage. Details: $LOG_FILE"
     return 1
   fi
+  [[ -n $aside ]] && rm -rf "$aside"
   TLS_CERT_PATH=$(acme_cert_path "$host") TLS_KEY_PATH=$(acme_key_path "$host")
 }
 
@@ -1560,7 +1582,7 @@ nginx_push_refresh() {  # an HTTPS site written before push uploads existed gets
   fi
 }
 
-write_nginx_site() {  # write_nginx_site HOST HTTPS_PORT REDIRECT(0/1) APP_PORT CERT KEY
+write_nginx_site() {  # write_nginx_site "HOST [ALT_HOST]" HTTPS_PORT REDIRECT(0/1) APP_PORT CERT KEY
   local host=$1 hport=$2 redirect=$3 aport=$4 cert=$5 key=$6 target="https://\$host"
   [[ $hport != 443 ]] && target="https://\$host:$hport"
   {
@@ -1616,6 +1638,10 @@ validate_network_inputs() {  # validates NEW_* values; prints a reason and retur
     { warn "The DNS wait must be 0 (automatic) or 10–600 seconds"; return 1; }
   if [[ $NEW_HTTPS == 1 ]]; then
     [[ $NEW_HOST =~ $fqdn_re ]] || { warn "Invalid hostname: $NEW_HOST"; return 1; }
+    if [[ -n ${NEW_ALT_HOST:-} ]]; then
+      [[ $NEW_ALT_HOST =~ $fqdn_re ]] || { warn "Invalid second hostname: $NEW_ALT_HOST"; return 1; }
+      [[ $NEW_ALT_HOST != "$NEW_HOST" ]] || { warn "The second hostname must differ from the first"; return 1; }
+    fi
     [[ -z $NEW_EMAIL || $NEW_EMAIL =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || { warn "Invalid email: $NEW_EMAIL"; return 1; }
     ((NEW_PORT != NEW_HTTPS_PORT)) || { warn "The app port and HTTPS port must differ"; return 1; }
     if [[ $NEW_REDIRECT == 1 ]] && ((NEW_PORT == 80 || NEW_HTTPS_PORT == 80)); then
@@ -1639,11 +1665,14 @@ validate_network_inputs() {  # validates NEW_* values; prints a reason and retur
 }
 
 apply_network_config() {
-  # Inputs: NEW_PORT NEW_HTTPS(0/1) NEW_HOST NEW_HTTPS_PORT NEW_REDIRECT(0/1) NEW_EMAIL NEW_STAGING(0/1)
+  # Inputs: NEW_PORT NEW_HTTPS(0/1) NEW_HOST NEW_ALT_HOST (optional second hostname) NEW_HTTPS_PORT
+  #         NEW_REDIRECT(0/1) NEW_EMAIL NEW_STAGING(0/1)
   #         NEW_PROPAGATION (0 = automatic) NEW_PROVIDER (dns-providers.json id)
   #         NEW_CREDENTIALS (JSON {ENV: value}; empty keeps the saved values)
   #         NEW_TOKEN (older requests: a Cloudflare API token)
   # Returns 1 (after restoring the previous configuration) if anything fails.
+  NEW_ALT_HOST=${NEW_ALT_HOST:-}
+  [[ $NEW_HTTPS == 1 ]] || NEW_ALT_HOST=""
   validate_network_inputs || return 1
   local old_port old_host old_https_host old_staging old_client old_provider restart=0
   old_port=$(env_get PORT); old_host=$(env_get HOST)
@@ -1689,14 +1718,16 @@ PY
     local force=0
     [[ -f $TLS_CERT_PATH && ${old_staging:-0} != "$NEW_STAGING" ]] && force=1
     ((new_creds)) && [[ -f $TLS_CERT_PATH ]] && force=1
+    # A second hostname added, changed or removed: a new certificate for exactly these names.
+    [[ -f $TLS_CERT_PATH ]] && ! cert_names_match "$TLS_CERT_PATH" "$NEW_HOST" ${NEW_ALT_HOST:+"$NEW_ALT_HOST"} && force=1
     if [[ -n $(override MESHHOME_TLS_SELF_SIGNED) || ! -f $TLS_CERT_PATH || $force == 1 || $old_client != lego ]]; then
-      status certificate "Requesting a certificate for $NEW_HOST"
-      obtain_certificate "$NEW_HOST" "$NEW_EMAIL" "$NEW_STAGING" "$NEW_PROPAGATION" "$force" ||
+      status certificate "Requesting a certificate for $NEW_HOST${NEW_ALT_HOST:+ and $NEW_ALT_HOST}"
+      obtain_certificate "$NEW_HOST" "$NEW_EMAIL" "$NEW_STAGING" "$NEW_PROPAGATION" "$force" "$NEW_ALT_HOST" ||
         { restore_network_config; return 1; }
     else
       ok "Using the existing certificate for $NEW_HOST"
     fi
-    write_nginx_site "$NEW_HOST" "$NEW_HTTPS_PORT" "$NEW_REDIRECT" "$NEW_PORT" "$TLS_CERT_PATH" "$TLS_KEY_PATH"
+    write_nginx_site "$NEW_HOST${NEW_ALT_HOST:+ $NEW_ALT_HOST}" "$NEW_HTTPS_PORT" "$NEW_REDIRECT" "$NEW_PORT" "$TLS_CERT_PATH" "$TLS_KEY_PATH"
     ln -sfn "$NGINX_SITE" $NGINX_ENABLED
     if ! nginx -t >>"$LOG_FILE" 2>&1; then
       warn "nginx rejected the configuration (see $LOG_FILE)"; restore_network_config; return 1
@@ -1706,6 +1737,7 @@ PY
     env_set HOST 127.0.0.1
     env_set HTTPS_ENABLED 1
     env_set HTTPS_HOST "$NEW_HOST"
+    env_set HTTPS_ALT_HOST "$NEW_ALT_HOST"
     env_set TLS_CERT "$TLS_CERT_PATH"
     if [[ -z $(override MESHHOME_TLS_SELF_SIGNED) ]]; then
       env_set ACME_CLIENT lego
@@ -1767,6 +1799,7 @@ load_current_network() {  # NEW_* defaults = current configuration
   NEW_PORT=$(env_get PORT); NEW_PORT=${NEW_PORT:-$DEFAULT_PORT}
   NEW_HTTPS=0; https_enabled && NEW_HTTPS=1
   NEW_HOST=$(env_get HTTPS_HOST)
+  NEW_ALT_HOST=$(env_get HTTPS_ALT_HOST)
   NEW_HTTPS_PORT=$(env_get HTTPS_PORT); NEW_HTTPS_PORT=${NEW_HTTPS_PORT:-$DEFAULT_HTTPS_PORT}
   NEW_REDIRECT=$(env_get HTTPS_REDIRECT); NEW_REDIRECT=${NEW_REDIRECT:-1}
   NEW_EMAIL=$(env_get CERTBOT_EMAIL)
@@ -1920,7 +1953,7 @@ https_disable() {
 # what only root can read: the network settings, the HTTPS certificate and key, the DNS provider
 # credentials (all in $ACME_DIR) and the radio HAT's data ($HAT_DATA). The archive is handed over in
 # $STATE_DIR, readable only by the app user, which encrypts it into the backup file at once.
-NETWORK_KEYS=(HTTPS_ENABLED HTTPS_HOST PORT HTTPS_PORT HTTPS_REDIRECT CERTBOT_EMAIL CERTBOT_STAGING CF_PROPAGATION ACME_CLIENT ACME_PROVIDER)
+NETWORK_KEYS=(HTTPS_ENABLED HTTPS_HOST HTTPS_ALT_HOST PORT HTTPS_PORT HTTPS_REDIRECT CERTBOT_EMAIL CERTBOT_STAGING CF_PROPAGATION ACME_CLIENT ACME_PROVIDER)
 
 system_export() {
   local tmp k v hat=0 was=0 cert="" host
@@ -2028,7 +2061,7 @@ PY
   if [[ -f $tmp/network.env ]]; then
     parsed=$(python3 - "$tmp/network.env" <<'PY'
 import re, shlex, sys
-allowed = {"HTTPS_ENABLED", "HTTPS_HOST", "PORT", "HTTPS_PORT", "HTTPS_REDIRECT", "CERTBOT_EMAIL",
+allowed = {"HTTPS_ENABLED", "HTTPS_HOST", "HTTPS_ALT_HOST", "PORT", "HTTPS_PORT", "HTTPS_REDIRECT", "CERTBOT_EMAIL",
            "CERTBOT_STAGING", "CF_PROPAGATION", "ACME_CLIENT", "ACME_PROVIDER"}
 v = {}
 for line in open(sys.argv[1]):
@@ -2037,6 +2070,7 @@ for line in open(sys.argv[1]):
         v[k] = val
 out = {
     "NEW_HTTPS": "1" if v.get("HTTPS_ENABLED") == "1" else "0", "NEW_HOST": v.get("HTTPS_HOST", "").lower(),
+    "NEW_ALT_HOST": v.get("HTTPS_ALT_HOST", "").lower(),
     "NEW_PORT": v.get("PORT", ""), "NEW_HTTPS_PORT": v.get("HTTPS_PORT", "443"),
     "NEW_REDIRECT": "0" if v.get("HTTPS_REDIRECT") == "0" else "1", "NEW_EMAIL": v.get("CERTBOT_EMAIL", ""),
     "NEW_STAGING": "1" if v.get("CERTBOT_STAGING") == "1" else "0", "NEW_PROPAGATION": v.get("CF_PROPAGATION", "0"),
@@ -2098,6 +2132,7 @@ creds_json = json.dumps(creds) if creds else ""
 out = {
     "ACTION": action,
     "NEW_PORT": s("app_port"), "NEW_HTTPS": flag("https_enabled", False), "NEW_HOST": s("hostname").lower(),
+    "NEW_ALT_HOST": s("alt_hostname").lower(),
     "NEW_HTTPS_PORT": s("https_port", "443"), "NEW_REDIRECT": flag("redirect_http", True),
     "NEW_EMAIL": s("email"), "NEW_STAGING": flag("staging", False), "NEW_PROPAGATION": s("propagation_seconds", "30"),
     "NEW_TOKEN": token, "NEW_PROVIDER": provider, "RESTORE_SHA256": digest,

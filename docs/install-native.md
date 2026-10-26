@@ -172,7 +172,8 @@ off later in **Settings → Network & HTTPS**, or with `sudo meshhome https`. Th
 shows the address, HTTPS status, certificate expiry, and app port. **Configure…** opens a dialog for:
 
 - the app port;
-- HTTPS on/off, the hostname, the HTTPS port, and the HTTP→HTTPS redirect;
+- HTTPS on/off, the hostname, an optional second hostname, the HTTPS port, and the HTTP→HTTPS
+  redirect;
 - the Let's Encrypt email, your DNS provider and its credentials, the DNS wait, and a staging option
   for testing;
 - **Renew now**.
@@ -216,6 +217,13 @@ You need:
 1. A hostname in a domain at one of the providers above (e.g. `meshhome.<your-domain>`).
 2. API credentials for that provider, limited to that domain's zone where the provider allows it.
 3. A local DNS record (router, Pi-hole, etc.) pointing the hostname at the Pi's LAN address.
+
+**A second hostname** is for a Pi with two addresses, for example Ethernet and Wi-Fi with Ethernet
+preferred: give each address its own name (`meshhome.<your-domain>` and
+`meshhome-wifi.<your-domain>`) and enter the second under **Second hostname**. One certificate
+covers both names and nginx answers on both, so whichever connection is up, its name works over
+HTTPS. Both must be in zones your DNS credentials manage. Adding, changing or removing the second
+hostname requests a new certificate; renewals keep both names.
 
 ### My DNS provider isn't listed
 

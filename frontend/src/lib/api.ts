@@ -421,6 +421,8 @@ export interface NetworkSnapshot {
   bind: string;
   https_enabled: boolean;
   hostname: string | null;
+  /** A second hostname on the same certificate (e.g. Wi-Fi and Ethernet with different addresses). */
+  alt_hostname?: string | null;
   https_port: number;
   redirect_http: boolean;
   email: string | null;

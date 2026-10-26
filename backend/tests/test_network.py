@@ -75,6 +75,7 @@ async def test_apply_writes_private_request_without_storing_token(client, native
     assert (
         req["action"] == "apply"
         and req["hostname"] == "meshcore.example.com"
+        and req["alt_hostname"] == ""
         and req["dns_provider"] == "cloudflare"
         and req["credentials"] == {"CF_DNS_API_TOKEN": GOOD["cf_token"]}  # older clients' cf_token
     )
@@ -90,6 +91,8 @@ async def test_apply_writes_private_request_without_storing_token(client, native
     [
         ({"app_port": 80}, None),  # unprivileged app cannot bind < 1024
         ({"hostname": "not a host"}, "hostname"),
+        ({"alt_hostname": "not a host"}, "second hostname"),
+        ({"alt_hostname": "MESHCORE.example.com"}, "must differ"),
         ({"https_port": 8080}, "must differ"),
         ({"email": "nope"}, None),
         ({"cf_token": "short"}, None),
@@ -104,6 +107,15 @@ async def test_validation(client, native, change, detail):
     if detail:
         assert detail in r.text
     assert not (native / "config-request.json").exists()
+
+
+async def test_second_hostname(client, native):
+    await do_setup(client, mode="none")
+    snapshot(native)
+    body = {**GOOD, "alt_hostname": " Meshcore-WiFi.Example.com "}
+    assert (await client.put("/api/system/network", headers=csrf(client), json=body)).status_code == 202
+    req = json.loads((native / "config-request.json").read_text())
+    assert (req["hostname"], req["alt_hostname"]) == ("meshcore.example.com", "meshcore-wifi.example.com")
 
 
 async def test_token_required_only_when_none_saved(client, native):

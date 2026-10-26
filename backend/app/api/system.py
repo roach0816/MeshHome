@@ -93,6 +93,9 @@ class NetworkConfigIn(BaseModel):
     app_port: int = Field(ge=1024, le=65535)
     https_enabled: bool
     hostname: str | None = Field(default=None, max_length=253)
+    # Optional second hostname on the same certificate, e.g. when Ethernet and Wi-Fi have different
+    # addresses and names. nginx answers on both.
+    alt_hostname: str | None = Field(default=None, max_length=253)
     https_port: int = Field(default=443, ge=1, le=65535)
     redirect_http: bool = True
     email: str | None = Field(default=None, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -194,10 +197,20 @@ async def apply_network(
     if system_config.in_progress():
         raise HTTPException(status.HTTP_409_CONFLICT, "A settings change is already being applied")
     hostname = (body.hostname or "").strip().lower()
+    alt_hostname = (body.alt_hostname or "").strip().lower() if body.https_enabled else ""
     if body.https_enabled:
         if not re.fullmatch(HOSTNAME_RE, hostname):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, "Enter a full hostname such as meshcore.example.com"
+            )
+        if alt_hostname and not re.fullmatch(HOSTNAME_RE, alt_hostname):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Enter a full second hostname such as meshcore-wifi.example.com, or leave it blank",
+            )
+        if alt_hostname == hostname:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "The second hostname must differ from the first"
             )
         if body.app_port == body.https_port:
             raise HTTPException(
@@ -221,6 +234,7 @@ async def apply_network(
                 "app_port": body.app_port,
                 "https_enabled": body.https_enabled,
                 "hostname": hostname,
+                "alt_hostname": alt_hostname,
                 "https_port": body.https_port,
                 "redirect_http": body.redirect_http,
                 "email": body.email or "",
@@ -240,6 +254,7 @@ async def apply_network(
             detail={
                 "https_enabled": body.https_enabled,
                 "hostname": hostname or None,
+                "alt_hostname": alt_hostname or None,
                 "app_port": body.app_port,
                 "https_port": body.https_port,
                 "dns_provider": body.dns_provider,

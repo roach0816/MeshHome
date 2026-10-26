@@ -105,9 +105,19 @@ export function NetworkSection() {
             </Row>
             <Row k="HTTPS">
               {c.https_enabled ? (
-                <Badge tone="ok">
-                  <Lock className="size-3" aria-hidden /> On · {c.hostname}
-                </Badge>
+                <>
+                  <Badge tone="ok">
+                    <Lock className="size-3" aria-hidden /> On · {c.hostname}
+                  </Badge>
+                  {c.alt_hostname && (
+                    <span className="mt-1 block text-xs text-muted">
+                      Also{" "}
+                      <a href={httpsUrl(c.alt_hostname, c.https_port)} className="text-accent underline">
+                        {c.alt_hostname}
+                      </a>
+                    </span>
+                  )}
+                </>
               ) : (
                 <Badge tone="warn">
                   <LockOpen className="size-3" aria-hidden /> Off · plain HTTP
@@ -173,6 +183,7 @@ type Form = {
   app_port: string;
   https_enabled: boolean;
   hostname: string;
+  alt_hostname: string;
   https_port: string;
   redirect_http: boolean;
   email: string;
@@ -191,6 +202,7 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
     app_port: String(config.app_port),
     https_enabled: config.https_enabled,
     hostname: config.hostname ?? "",
+    alt_hostname: config.alt_hostname ?? "",
     https_port: String(config.https_port),
     redirect_http: config.redirect_http,
     email: config.email ?? "",
@@ -206,6 +218,7 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
   const submittedAt = useRef(0);
 
   const host = f.hostname.trim().toLowerCase();
+  const altHost = f.alt_hostname.trim().toLowerCase();
   const appPort = Number(f.app_port);
   const httpsPort = Number(f.https_port);
   const prop = Number(f.propagation_seconds);
@@ -213,6 +226,8 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
   if (!Number.isInteger(appPort) || appPort < 1024 || appPort > 65535) errors.app_port = "1024–65535 (the app runs unprivileged)";
   if (f.https_enabled) {
     if (!FQDN.test(host)) errors.hostname = "A full hostname, e.g. meshcore.example.com";
+    if (altHost && !FQDN.test(altHost)) errors.alt_hostname = "A full hostname, or leave it blank";
+    else if (altHost && altHost === host) errors.alt_hostname = "Must differ from the hostname";
     if (!Number.isInteger(httpsPort) || httpsPort < 1 || httpsPort > 65535) errors.https_port = "1–65535";
     else if (httpsPort === appPort) errors.https_port = "Must differ from the app port";
     else if (f.redirect_http && (httpsPort === 80 || appPort === 80)) errors.https_port = "Port 80 is used by the redirect";
@@ -246,11 +261,16 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
         list.push("Move certificate renewals from certbot to lego (your saved Cloudflare token is reused)");
       if (newCreds || !credsSaved) list.push(`Save the ${name} credentials (readable by root only; never shown again)`);
       const needsCert =
-        !config.https_enabled || host !== config.hostname || f.staging !== config.staging || newCreds ||
+        !config.https_enabled || host !== config.hostname || altHost !== (config.alt_hostname ?? "") ||
+        f.staging !== config.staging || newCreds ||
         f.dns_provider !== config.dns_provider || config.acme_client !== "lego";
       if (needsCert)
-        list.push(`Request a ${f.staging ? "staging (untrusted, for testing) " : ""}certificate for ${host} from Let's Encrypt via ${name}`);
-      list.push(`Serve HTTPS on port ${httpsPort}${f.redirect_http ? " and redirect port 80 to it" : ""}, with nginx`);
+        list.push(
+          `Request a ${f.staging ? "staging (untrusted, for testing) " : ""}certificate for ${host}${altHost ? ` and ${altHost}` : ""} from Let's Encrypt via ${name}`,
+        );
+      list.push(
+        `Serve HTTPS on port ${httpsPort}${f.redirect_http ? " and redirect port 80 to it" : ""}, with nginx${altHost ? `, for both hostnames` : ""}`,
+      );
       if (!config.https_enabled) list.push(`Make the app listen on 127.0.0.1:${appPort} only, behind nginx`);
     } else if (config.https_enabled) {
       list.push("Turn HTTPS off: remove the nginx site and stop renewals (the certificate and saved credentials are kept)");
@@ -260,7 +280,7 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
     if (f.https_enabled === config.https_enabled && appPort === config.app_port && list.length === 0)
       list.push("Update the saved certificate settings");
     return list;
-  }, [f, config, host, appPort, httpsPort, provider, credsSaved]);
+  }, [f, config, host, altHost, appPort, httpsPort, provider, credsSaved]);
   const restarts = appPort !== config.app_port || f.https_enabled !== config.https_enabled;
   const addressChanges = newUrl !== addressFor(config);
 
@@ -272,6 +292,7 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
           app_port: appPort,
           https_enabled: f.https_enabled,
           hostname: f.https_enabled ? host : null,
+          alt_hostname: f.https_enabled && altHost ? altHost : null,
           https_port: httpsPort,
           redirect_http: f.redirect_http,
           email: f.email.trim() || null,
@@ -346,6 +367,14 @@ function NetworkDialog({ info, config, onClose }: { info: NetworkInfo; config: N
                 </Field>
                 <Field label="HTTPS port" htmlFor="net-hport" error={errors.https_port}>
                   <Input id="net-hport" inputMode="numeric" value={f.https_port} onChange={(e) => set("https_port", e.target.value)} />
+                </Field>
+                <Field
+                  label="Second hostname (optional)"
+                  htmlFor="net-host2"
+                  error={errors.alt_hostname}
+                  hint="Another name for this device, such as its Wi-Fi address when Ethernet has the first. The certificate covers both, and nginx answers on both."
+                >
+                  <Input id="net-host2" placeholder="meshcore-wifi.example.com" autoCapitalize="none" spellCheck={false} value={f.alt_hostname} onChange={(e) => set("alt_hostname", e.target.value)} />
                 </Field>
               </div>
             )}
