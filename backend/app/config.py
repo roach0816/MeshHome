@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-APP_VERSION = "1.0.13"
+APP_VERSION = "1.0.14"
 # The API contract clients depend on (GET /api/meta). Changes stay additive; this only goes up
 # for a change that existing clients can't handle, which should be (almost) never.
 API_VERSION = 1

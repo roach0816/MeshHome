@@ -247,6 +247,11 @@ class SendAttempt(Base):
     finished_at: Mapped[datetime | None]
     result: Mapped[str | None] = mapped_column(String(32))
     detail: Mapped[str | None] = mapped_column(Text)
+    # Direct messages: the attempt number sent to the radio (0 for the first of a round of automatic
+    # retries; a manual retry starts a new round), its ACK code, and whether it was flooded.
+    round_attempt: Mapped[int | None] = mapped_column(Integer)
+    expected_ack: Mapped[str | None] = mapped_column(String(16), index=True)
+    flood: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class ReadPosition(Base):

@@ -12,7 +12,8 @@ import {
   newClientId,
   sameDay,
   saveDraft,
-  stateLabel,
+  deliveryLabel,
+  deliveryOf,
   stateTone,
   utf8Bytes,
   canCopy,
@@ -379,6 +380,7 @@ function Bubble({
     retry.mutate(risky);
   };
   const tone = stateTone(m.state);
+  const delivery = out ? deliveryOf(m.meta) : null;
   const card = conv.kind === "channel" ? contactLink(m.body) : null;
 
   return (
@@ -423,7 +425,7 @@ function Bubble({
             tone === "muted" && "text-muted",
           )}
         >
-          {stateLabel(m.state, conv.kind)}
+          {deliveryLabel(m.state, conv.kind, delivery)}
           {retryable && online && (
             <button onClick={onRetry} disabled={retry.isPending} className="ml-2 inline-flex items-center gap-1 underline">
               <RotateCw className="size-3" aria-hidden /> Retry
@@ -449,8 +451,16 @@ function Bubble({
             </>
           )}
           {m.signature && <SignatureDetails sig={m.signature} />}
+          {delivery && (
+            <>
+              <dt>Attempts</dt>
+              <dd>
+                {delivery.attempt} of {delivery.of} · last {delivery.route === "flood" ? "by flood" : "on the stored route"}
+              </dd>
+            </>
+          )}
           {Object.entries(m.meta ?? {})
-            .filter(([k]) => k !== "signed" && k !== "unsigned")
+            .filter(([k]) => k !== "signed" && k !== "unsigned" && k !== "delivery")
             .map(([k, v]) => (
             <Fragment key={k}>
               <dt>{k}</dt>

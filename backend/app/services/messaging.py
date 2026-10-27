@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Channel, Contact, Conversation, Message, Radio, utcnow
+from app.models import Channel, Contact, Conversation, Message, Radio, SendAttempt, utcnow
 from app.radio.base import DeviceSnapshot, IncomingMessage, RadioChannel, RadioContact
 from app.services import signed_messages
 
@@ -27,6 +27,43 @@ class States:
     EXPIRED = "expired"
 
     RETRYABLE = {"failed", "uncertain", "no_ack", "expired"}
+
+
+# Automatic retries of a direct message that gets no delivery ACK, as the MeshCore app does
+# (meshcore_py's send_msg_with_retry): up to 3 attempts, all with the same timestamp. With a stored
+# route the first two go direct; then the route is reset on the radio and the last one is flooded
+# (a successful flood teaches the radio the new route). With no stored route: 2 flood attempts.
+# An ACK for any attempt means delivered. Bot replies aren't retried (airtime).
+RETRY_MAX_ATTEMPTS = 3
+RETRY_FLOOD_AFTER = 2
+RETRY_MAX_FLOOD_ATTEMPTS = 2
+
+
+def current_round(attempts: list[SendAttempt]) -> list[SendAttempt]:
+    """The attempts (by attempt_no) since the last first-of-a-round; a manual retry starts a round."""
+    attempts = sorted(attempts, key=lambda a: a.attempt_no)
+    for i in range(len(attempts) - 1, -1, -1):
+        if attempts[i].round_attempt == 0:
+            return attempts[i:]
+    return []
+
+
+def next_retry(rnd: list[SendAttempt]) -> tuple[int, bool] | None:
+    """(attempt number to send, reset the route first) for the next automatic retry, or None."""
+    if not rnd:
+        return None
+    last = rnd[-1]
+    n = (last.round_attempt or 0) + 1
+    if n >= RETRY_MAX_ATTEMPTS:
+        return None
+    if last.flood and sum(1 for a in rnd if a.flood) >= RETRY_MAX_FLOOD_ATTEMPTS:
+        return None
+    return n, n == RETRY_FLOOD_AFTER and not last.flood
+
+
+def round_size(rnd: list[SendAttempt]) -> int:
+    """How many attempts this round gets: 2 if it started by flood (no stored route), else 3."""
+    return RETRY_MAX_FLOOD_ATTEMPTS if rnd and rnd[0].flood else RETRY_MAX_ATTEMPTS
 
 
 # Arbitrary constant used with pg_advisory_xact_lock to serialise position assignment, so a
@@ -385,7 +422,9 @@ async def mark_interrupted_sends_uncertain(db: AsyncSession) -> int:
     return res.rowcount or 0
 
 
-async def expire_and_timeout(db: AsyncSession) -> list[uuid.UUID]:
+async def expire_and_timeout(db: AsyncSession, expiry_seconds: int = 60) -> list[uuid.UUID]:
+    """Expire queued messages not sent in time; a direct message whose ACK didn't come is queued
+    again for its next automatic retry, or marked no_ack when its attempts are used up."""
     now = utcnow()
     expired = await db.execute(
         update(Message)
@@ -393,16 +432,30 @@ async def expire_and_timeout(db: AsyncSession) -> list[uuid.UUID]:
         .values(state=States.EXPIRED, error="Not sent before the request expired.")
         .returning(Message.id)
     )
-    timed_out = await db.execute(
-        update(Message)
-        .where(
-            and_(
-                Message.state == States.ACCEPTED,
-                Message.ack_deadline.is_not(None),
-                Message.ack_deadline < now,
+    changed = [r[0] for r in expired]
+    timed_out = (
+        await db.execute(
+            select(Message)
+            .where(
+                and_(
+                    Message.state == States.ACCEPTED,
+                    Message.ack_deadline.is_not(None),
+                    Message.ack_deadline < now,
+                )
             )
+            .with_for_update(skip_locked=True)
         )
-        .values(state=States.NO_ACK)
-        .returning(Message.id)
-    )
-    return [r[0] for r in expired] + [r[0] for r in timed_out]
+    ).scalars()
+    for m in timed_out:
+        plan = None
+        if not (m.meta or {}).get("bot"):
+            attempts = (await db.execute(select(SendAttempt).where(SendAttempt.message_id == m.id))).scalars()
+            plan = next_retry(current_round(list(attempts)))
+        if plan:
+            m.state, m.ack_deadline = States.QUEUED, None
+            m.expires_at = now + timedelta(seconds=expiry_seconds)
+        else:
+            m.state = States.NO_ACK
+        changed.append(m.id)
+    await db.flush()
+    return changed

@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select, text, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app import db
@@ -51,6 +51,10 @@ CONTACT_PUSH_MIN_INTERVAL = 30.0
 HEARTBEAT_SECONDS = 15
 BACKOFF_MAX = 30.0
 SEND_SPACING_SECONDS = 0.5
+# How long a direct message waits for its delivery ACK before the next attempt (or no_ack): 1.5×
+# the radio's estimate, within these bounds.
+ACK_WAIT_MIN_SECONDS = 10.0
+ACK_WAIT_MAX_SECONDS = 60.0
 COMMAND_TIMEOUT = 20.0
 TXT_CLI_DATA = 1  # MeshCore TxtType.CLI_DATA: a remote node's reply to a CLI command
 
@@ -629,7 +633,7 @@ class RadioSupervisor:
 
     async def _sweep(self) -> None:
         async with db.session_factory()() as s:
-            changed = await messaging.expire_and_timeout(s)
+            changed = await messaging.expire_and_timeout(s, get_settings().send_expiry_seconds)
             await s.commit()
         for mid in changed:
             hub.publish("delivery-updated", message_id=str(mid))
@@ -651,7 +655,7 @@ class RadioSupervisor:
             if m is None:
                 return None
             conv = await s.get(Conversation, m.conversation_id)
-            # ("channel", slot, region scope, sign) or ("dm", public key)
+            # ("channel", slot, region scope, sign) or ("dm", public key, timestamp, attempt, reset route)
             target: tuple | None = None
             if conv.kind == "channel" and conv.channel_id:
                 ch = await s.get(Channel, conv.channel_id)
@@ -661,17 +665,26 @@ class RadioSupervisor:
             elif conv.contact_id:
                 contact = await s.get(Contact, conv.contact_id)
                 if contact:
-                    target = ("dm", contact.public_key)
+                    target = ("dm", contact.public_key, None, 0, False)
             if target is None:
                 m.state = States.FAILED
                 m.error = "This conversation is no longer available on the radio."
                 await s.commit()
                 hub.publish("delivery-updated", message_id=str(m.id), conversation_id=str(m.conversation_id))
                 return None
-            attempts = (
-                await s.execute(select(SendAttempt.attempt_no).where(SendAttempt.message_id == m.id))
-            ).all()
+            attempts = list(
+                (await s.execute(select(SendAttempt).where(SendAttempt.message_id == m.id))).scalars()
+            )
             attempt = SendAttempt(message_id=m.id, attempt_no=len(attempts) + 1)
+            if target[0] == "dm":
+                # An automatic retry keeps the round's timestamp and counts the attempt up; otherwise
+                # (first send, or a manual retry, which clears the timestamp) a new round starts.
+                plan = messaging.next_retry(messaging.current_round(attempts)) if m.sender_timestamp else None
+                if plan is None:
+                    m.sender_timestamp = int(time.time())
+                    plan = (0, False)
+                attempt.round_attempt = plan[0]
+                target = ("dm", target[1], m.sender_timestamp, plan[0], plan[1])
             s.add(attempt)
             m.state = States.SENDING
             m.error = None
@@ -683,6 +696,7 @@ class RadioSupervisor:
         adapter = self._adapter
         state, error, ack, deadline = States.UNCERTAIN, None, None, None
         signed: dict[str, Any] | None = None
+        flood: bool | None = None
         try:
             if adapter is None:
                 raise RadioError("radio disconnected before transmission")
@@ -693,14 +707,25 @@ class RadioSupervisor:
                 if result.ok and after:
                     signed = {"v": 1, "key_id": after[2:10].hex(), "signature": after[10:].hex(), "ts": ts}
             else:
-                result = await self._cmd(adapter.send_dm, target[1], body, ts)
+                _, public_key, ts, n, reset_route = target
+                if reset_route:
+                    # Two attempts on the stored route got no ACK: forget it so this one floods.
+                    try:
+                        await self._cmd(adapter.configure, "contact_reset_path", {"public_key": public_key})
+                        self._contacts_dirty.set()
+                    except Exception as exc:  # noqa: BLE001 - still worth one more try on the old route
+                        log.warning("could not reset the route before flooding: %s", _safe_error(exc))
+                result = await self._cmd(adapter.send_dm, public_key, body, ts, n)
+                flood = result.flood
             if result.ok:
                 self.status.sent += 1
                 state = States.ACCEPTED
                 if target[0] == "dm" and result.expected_ack:
                     ack = result.expected_ack.lower()
                     wait = (result.suggested_timeout_ms or 0) / 1000 * 1.5
-                    deadline = utcnow() + timedelta(seconds=min(60.0, max(10.0, wait)))
+                    deadline = utcnow() + timedelta(
+                        seconds=min(ACK_WAIT_MAX_SECONDS, max(ACK_WAIT_MIN_SECONDS, wait))
+                    )
                     if ack in self._early_acks:  # ACK beat the send result
                         self._early_acks.pop(ack, None)
                         state, deadline = States.ACKNOWLEDGED, None
@@ -711,12 +736,12 @@ class RadioSupervisor:
                 States.UNCERTAIN,
                 "Interrupted while sending; it may or may not have been transmitted.",
             )
-            await self._finish_send(message_id, attempt_id, state, error, ack, deadline)
+            await self._finish_send(message_id, attempt_id, state, error, ack, deadline, flood=flood)
             raise
         except Exception as exc:  # noqa: BLE001
             state = States.UNCERTAIN
             error = f"Outcome unknown: {_safe_error(exc)}. It may or may not have been transmitted."
-        await self._finish_send(message_id, attempt_id, state, error, ack, deadline, signed)
+        await self._finish_send(message_id, attempt_id, state, error, ack, deadline, signed, flood)
         hub.publish("delivery-updated", message_id=str(message_id), conversation_id=str(conversation_id))
 
     async def _signature_for(self, adapter: RadioAdapter, slot: int, body: str, ts: int) -> bytes | None:
@@ -737,34 +762,50 @@ class RadioSupervisor:
             return None
         return signed_messages.ending(bytes.fromhex(own), sig)
 
-    async def _finish_send(self, message_id, attempt_id, state, error, ack, deadline, signed=None) -> None:
+    async def _finish_send(
+        self, message_id, attempt_id, state, error, ack, deadline, signed=None, flood=None
+    ) -> None:
         async with db.session_factory()() as s:
+            # Only while still sending: an ACK for an earlier attempt may have arrived meanwhile.
             await s.execute(
                 update(Message)
-                .where(Message.id == message_id)
+                .where(Message.id == message_id, Message.state == States.SENDING)
                 .values(state=state, error=error, expected_ack=ack, ack_deadline=deadline)
             )
-            if signed:
-                m = await s.get(Message, message_id)
-                if m is not None:
-                    m.meta = {**(m.meta or {}), "signed": signed}
-                    m.signed_by = self._radio.public_key if self._radio else None
             await s.execute(
                 update(SendAttempt)
                 .where(SendAttempt.id == attempt_id)
-                .values(finished_at=utcnow(), result=state, detail=error)
+                .values(finished_at=utcnow(), result=state, detail=error, expected_ack=ack, flood=flood)
             )
+            m = await s.get(Message, message_id)
+            if m is not None and signed:
+                m.meta = {**(m.meta or {}), "signed": signed}
+                m.signed_by = self._radio.public_key if self._radio else None
+            if m is not None and flood is not None:
+                # For the app: "attempt 2 of 3", and how it went.
+                rnd = messaging.current_round(
+                    list(
+                        (await s.execute(select(SendAttempt).where(SendAttempt.message_id == m.id))).scalars()
+                    )
+                )
+                if rnd:
+                    size = 1 if (m.meta or {}).get("bot") else messaging.round_size(rnd)
+                    delivery = {"attempt": len(rnd), "of": size, "route": "flood" if flood else "direct"}
+                    m.meta = {**(m.meta or {}), "delivery": delivery}
             await s.commit()
 
     async def _on_ack(self, code: str) -> None:
         code = code.lower()
         async with db.session_factory()() as s:
+            # The ACK of any attempt counts, including an earlier one that arrives late (while the
+            # next attempt is queued or being sent).
+            earlier = select(SendAttempt.message_id).where(SendAttempt.expected_ack == code)
             row = (
                 await s.execute(
                     update(Message)
                     .where(
-                        Message.expected_ack == code,
-                        Message.state.in_([States.ACCEPTED, States.NO_ACK]),
+                        or_(Message.expected_ack == code, Message.id.in_(earlier)),
+                        Message.state.in_([States.ACCEPTED, States.NO_ACK, States.QUEUED, States.SENDING]),
                     )
                     .values(state=States.ACKNOWLEDGED, ack_deadline=None)
                     .returning(Message.id, Message.conversation_id)

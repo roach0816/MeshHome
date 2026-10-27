@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.13**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.14**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -133,15 +133,22 @@ through these `state` values:
 | --- | --- |
 | `queued` | Accepted by MeshHome and waiting for the radio. |
 | `sending` | Being handed to the radio now. |
-| `accepted` | The radio transmitted it. **Final for channel messages**: channels have no delivery receipts. For a DM this means "sent, waiting for acknowledgement". |
+| `accepted` | The radio transmitted it. **Final for channel messages**: channels have no delivery receipts. For a DM this means "sent, waiting for acknowledgement" (if none comes, it goes back to `queued` for its next automatic attempt). |
 | `acknowledged` | DM only: the recipient's radio returned an acknowledgement. This is a delivery receipt, not a read receipt. The web interface shows it as **Delivered**, like the MeshCore apps. |
-| `no_ack` | DM only: no acknowledgement arrived in time. It may or may not have been received. Shown as *Not confirmed delivered*. |
+| `no_ack` | DM only: no acknowledgement arrived for any attempt. It may or may not have been received. Shown as *Not confirmed delivered*. |
 | `uncertain` | Sending was interrupted (e.g. a restart). It may or may not have been transmitted. |
 | `failed` | The radio refused it; `error` says why. |
 | `expired` | It could not be sent within 60 seconds (e.g. the radio was busy or offline). |
 
 Incoming messages have `state: "received"`. `failed`, `uncertain`, `no_ack` and `expired`
-messages can be retried. MeshHome never resends anything automatically.
+messages can be retried.
+
+**Automatic retries (DMs):** like the MeshCore app, a DM with no acknowledgement is sent again, up
+to 3 attempts with the same timestamp (`sender_timestamp`). With a stored route, two go direct, then
+the route is reset on the radio and the last one floods; with no route, two flood. An
+acknowledgement of any attempt makes it `acknowledged`. `meta.delivery` reports the latest attempt:
+`{"attempt": 2, "of": 3, "route": "direct" | "flood"}`. Channel messages, bot replies and
+interrupted (`uncertain`) sends are never resent automatically.
 
 ### Idempotent sending
 
@@ -445,7 +452,8 @@ Send a `failed`, `uncertain`, `no_ack` or `expired` outgoing message again.
 ```
 
 For `uncertain` and `no_ack` the first copy may already have arrived, so you must pass
-`"confirm_possible_duplicate": true` (otherwise `409`). Returns the message, now `queued`.
+`"confirm_possible_duplicate": true` (otherwise `409`). Returns the message, now `queued`. A DM
+gets a fresh round of automatic attempts, with a new timestamp.
 
 ### Search and export
 
@@ -745,7 +753,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

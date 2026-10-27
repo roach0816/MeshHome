@@ -292,17 +292,22 @@ class MeshCoreTcpRadio(RadioAdapter):
             raise RadioError(f"the radio did not sign ({_describe(res)})")
         return bytes(sig)
 
-    async def send_dm(self, public_key: str, text: str, timestamp: int) -> SendResult:
+    async def send_dm(self, public_key: str, text: str, timestamp: int, attempt: int = 0) -> SendResult:
         mc = self._require()
-        # Single attempt; the library's send_msg_with_retry is deliberately not used
-        # (no hidden automatic resend — retries are explicit and user-initiated).
-        res = await mc.commands.send_msg(public_key, text, timestamp)
+        # One transmission. Retries (and the switch to flood) are run by the supervisor, so they
+        # survive restarts and show in the app, rather than inside the library's send_msg_with_retry.
+        res = await mc.commands.send_msg(public_key, text, timestamp, attempt=attempt)
         if res is None or res.is_error():
             return SendResult(ok=False, error=_describe(res))
         p = _payload(res)
         ack = p.get("expected_ack")
         ack_hex = ack.hex() if isinstance(ack, bytes | bytearray) else (str(ack) if ack else None)
-        return SendResult(ok=True, expected_ack=ack_hex, suggested_timeout_ms=p.get("suggested_timeout"))
+        return SendResult(
+            ok=True,
+            expected_ack=ack_hex,
+            suggested_timeout_ms=p.get("suggested_timeout"),
+            flood=p.get("type") == 1 if p.get("type") is not None else None,
+        )
 
     async def sync_clock(self, epoch_seconds: int) -> None:
         mc = self._require()

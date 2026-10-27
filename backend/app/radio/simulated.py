@@ -217,9 +217,20 @@ class SimulatedRadio(RadioAdapter):
         self._require()
         return identity.sign(sim_state()["private_key"], data)
 
-    async def send_dm(self, public_key: str, text: str, timestamp: int) -> SendResult:
+    async def send_dm(self, public_key: str, text: str, timestamp: int, attempt: int = 0) -> SendResult:
         self._require()
         await asyncio.sleep(0.15)
+        st = sim_state()
+        flood = st["contact_paths"].get(public_key, (-1, ""))[0] < 0
+        st.setdefault("sent_dms", []).append(
+            {
+                "public_key": public_key,
+                "text": text,
+                "timestamp": timestamp,
+                "attempt": attempt,
+                "flood": flood,
+            }
+        )
         ack = self._rng.randbytes(4).hex()
         if self._rng.random() < self.ack_probability:
             self._spawn(self._deliver_ack(ack, self._rng.uniform(0.8, 3.0)))
@@ -227,7 +238,7 @@ class SimulatedRadio(RadioAdapter):
             contact = next((c for c in SIM_CONTACTS if c.public_key == public_key), None)
             if contact and contact.kind == 1:
                 self._spawn(self._auto_reply(contact, self._rng.uniform(3.0, 8.0)))
-        return SendResult(ok=True, expected_ack=ack, suggested_timeout_ms=8000)
+        return SendResult(ok=True, expected_ack=ack, suggested_timeout_ms=8000, flood=flood)
 
     # ---- node configuration (in memory) ---------------------------------------------
 

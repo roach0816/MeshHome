@@ -103,6 +103,8 @@ class SendResult:
     expected_ack: str | None = None
     suggested_timeout_ms: int | None = None
     error: str | None = None
+    # Direct messages: True if the radio flooded it (no stored route), False if it went direct.
+    flood: bool | None = None
 
 
 # Remote administration of repeaters / room servers over the mesh.
@@ -177,7 +179,9 @@ class RadioAdapter(ABC):
         raise NotSupported("this radio connection can't sign")
 
     @abstractmethod
-    async def send_dm(self, public_key: str, text: str, timestamp: int) -> SendResult: ...
+    async def send_dm(self, public_key: str, text: str, timestamp: int, attempt: int = 0) -> SendResult:
+        """One transmission. Retries of a message keep its timestamp and count `attempt` up from 0,
+        which makes each packet (and its ACK code) different while receivers can tell it's a repeat."""
 
     async def sync_clock(self, epoch_seconds: int) -> None:  # noqa: B027 - optional hook
         """Set the radio clock where supported."""

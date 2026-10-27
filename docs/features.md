@@ -20,6 +20,13 @@ A tour of everything MeshHome does. The [README](../README.md#what-it-does) has 
 - **Honest delivery states:** *Queued → Sending → Sent by radio / Delivered / Not confirmed delivered
   / Outcome uncertain / Failed / Expired*. Sends are idempotent, and an interrupted send is never
   re-sent automatically.
+- **Automatic retries, like the MeshCore app:** a direct message that gets no delivery ACK is sent
+  again, up to 3 attempts in all, each with the same timestamp, so the recipient can tell it's a
+  repeat. With a stored route, the first two go along it; then the route is reset and the last
+  attempt floods the mesh (a delivered flood teaches the radio a new route). A contact with no
+  stored route gets two flood attempts. An ACK for any attempt counts as delivered. The message
+  shows each step ("Sending attempt 2 of 3…", "Delivered on attempt 3 by flood"), and **Retry**
+  afterwards starts a fresh round. Bot replies are sent once, to save airtime.
 - **Add channel** (the **+** next to the search box) offers the same choices as the MeshCore app:
   create a private channel, join a private channel, join Public, join a hashtag channel, or scan a QR
   code. Hashtag and new private channels come with their key, a QR code, and a

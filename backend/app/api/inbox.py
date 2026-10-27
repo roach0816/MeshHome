@@ -569,6 +569,7 @@ async def retry_message(
         raise HTTPException(status.HTTP_409_CONFLICT, "The radio is offline")
     msg.state = States.QUEUED
     msg.error = None
+    msg.sender_timestamp = None  # a new round of attempts, with a new timestamp
     msg.expected_ack = None
     msg.ack_deadline = None
     msg.expires_at = utcnow() + timedelta(seconds=get_settings().send_expiry_seconds)
