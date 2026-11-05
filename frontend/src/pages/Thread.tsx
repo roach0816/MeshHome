@@ -455,7 +455,8 @@ function Bubble({
             <>
               <dt>Attempts</dt>
               <dd>
-                {delivery.attempt} of {delivery.of} · last {delivery.route === "flood" ? "by flood" : "on the stored route"}
+                {delivery.attempt} of {delivery.of} · last{" "}
+                {delivery.route === "flood" ? "by flood" : delivery.via ? `via ${delivery.via}` : "on the stored route"}
               </dd>
             </>
           )}

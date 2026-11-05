@@ -125,6 +125,8 @@ class RemoteTicket:
     tag: str | None = None  # expected ACK / response tag, when the radio reports one
     timeout: float = 15.0  # seconds the radio suggests waiting for the reply
     handle: Any = field(default=None, repr=False, compare=False)  # adapter-private wait state
+    # Set by the supervisor: the preferred repeater's key, when the request went on the route through it.
+    via: str | None = field(default=None, compare=False)
 
 
 AckCallback = Callable[[str], Awaitable[None]]

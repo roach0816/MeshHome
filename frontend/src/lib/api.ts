@@ -201,6 +201,26 @@ export interface ContactDetail extends Contact {
   path_hash_size: number;
   messages_received: number;
   messages_sent: number;
+  /** Null when no preferred repeater is set (Settings → Radio), or for the repeater itself. */
+  preferred_route?: PreferredRoute | null;
+}
+
+/** The preferred repeater as it applies to one contact. */
+export interface PreferredRoute {
+  repeater_key: string;
+  repeater_name: string | null;
+  enabled: boolean;
+  /** The remembered route through the repeater; [] until one is learned. */
+  hops: string[];
+  source: "radio" | "message" | "advert" | "manual" | null;
+  learned_at: string | null;
+  /** Not used until then, after attempts on it went unanswered. */
+  paused_until: string | null;
+  repeater_available: boolean;
+}
+
+export interface RoutingConfig {
+  preferred_repeater: string | null;
 }
 
 export interface RadioStatus {

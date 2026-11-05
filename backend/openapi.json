@@ -1401,6 +1401,53 @@
         }
       }
     },
+    "/api/contacts/{contact_id}/preferred-route": {
+      "put": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Set Preferred Route",
+        "description": "Use the preferred repeater for this contact (the default), or leave its route to the radio.",
+        "operationId": "set_preferred_route_api_contacts__contact_id__preferred_route_put",
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Contact Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferredRouteIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/contacts/{contact_id}/share": {
       "post": {
         "tags": [
@@ -1968,6 +2015,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BotConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/routing": {
+      "get": {
+        "tags": [
+          "radio"
+        ],
+        "summary": "Get Routing",
+        "operationId": "get_routing_api_settings_routing_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "radio"
+        ],
+        "summary": "Put Routing",
+        "description": "The preferred repeater: direct traffic goes through it whenever that works.",
+        "operationId": "put_routing_api_settings_routing_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingConfig"
                 }
               }
             }
@@ -5063,6 +5171,16 @@
           "messages_sent": {
             "type": "integer",
             "title": "Messages Sent"
+          },
+          "preferred_route": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreferredRouteOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -6838,6 +6956,107 @@
         ],
         "title": "Place"
       },
+      "PreferredRouteIn": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "PreferredRouteIn"
+      },
+      "PreferredRouteOut": {
+        "properties": {
+          "repeater_key": {
+            "type": "string",
+            "title": "Repeater Key"
+          },
+          "repeater_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeater Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "hops": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "radio",
+                  "message",
+                  "advert",
+                  "manual"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "learned_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learned At"
+          },
+          "paused_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused Until"
+          },
+          "repeater_available": {
+            "type": "boolean",
+            "title": "Repeater Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repeater_key",
+          "repeater_name",
+          "enabled",
+          "hops",
+          "source",
+          "learned_at",
+          "paused_until",
+          "repeater_available"
+        ],
+        "title": "PreferredRouteOut",
+        "description": "The preferred repeater (Settings → Radio) as it applies to this contact."
+      },
       "Preview": {
         "properties": {
           "body": {
@@ -7147,6 +7366,24 @@
         },
         "type": "object",
         "title": "RetryRequest"
+      },
+      "RoutingConfig": {
+        "properties": {
+          "preferred_repeater": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Repeater"
+          }
+        },
+        "type": "object",
+        "title": "RoutingConfig"
       },
       "SearchHit": {
         "properties": {

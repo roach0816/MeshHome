@@ -23,7 +23,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { api, type Contact, type ContactDetail, type ContactPage } from "../lib/api";
+import { api, type Contact, type ContactDetail, type ContactPage, type PreferredRoute } from "../lib/api";
 import { Badge, Button, ErrorText, Field, IconButton, Input } from "../components/ui";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Dialog } from "../components/Dialog";
@@ -545,6 +545,57 @@ function pathText(d: ContactDetail) {
   return `${d.path_len} hop${d.path_len === 1 ? "" : "s"}: ${d.path_hops.join(" → ")}`;
 }
 
+const LEARNED_FROM: Record<NonNullable<PreferredRoute["source"]>, string> = {
+  radio: "the radio's route",
+  message: "a message",
+  advert: "an advert",
+  manual: "a route you set",
+};
+
+/** The preferred repeater (Settings → Radio) for one contact: the remembered route and a switch. */
+function PreferredRouteRow({ c, p }: { c: Contact; p: PreferredRoute }) {
+  const qc = useQueryClient();
+  const name = p.repeater_name || p.repeater_key.slice(0, 8);
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) => api(`/api/contacts/${c.id}/preferred-route`, { method: "PUT", json: { enabled } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contact", c.id] }),
+  });
+  let status: string;
+  if (!p.enabled) status = "Off: the radio's own route is used.";
+  else if (!p.hops.length) status = `No route through ${name} learned yet. One is learned when a message or advert arrives through it.`;
+  else if (!p.repeater_available) status = `${name} isn't getting messages through, so it's skipped until it's heard again.`;
+  else if (p.paused_until) status = `Paused until ${formatDateTime(p.paused_until)}: it went unanswered, so messages go around ${name} for now.`;
+  else status = `Messages go this way first and flood only if it doesn't work.`;
+  return (
+    <div className="space-y-1.5 py-1.5 text-sm">
+      <label className="flex cursor-pointer items-start justify-between gap-3">
+        <span className="text-muted">Prefer {name}</span>
+        <input
+          type="checkbox"
+          checked={p.enabled}
+          disabled={toggle.isPending}
+          onChange={(e) => toggle.mutate(e.target.checked)}
+          className="mt-0.5 size-5 shrink-0 accent-[var(--accent)]"
+        />
+      </label>
+      {p.hops.length > 0 && (
+        <p className="font-mono text-xs">
+          {p.hops.join(" → ")}
+          {p.source && (
+            <span className="font-sans text-muted">
+              {" "}
+              · from {LEARNED_FROM[p.source]}
+              {p.learned_at ? `, ${formatDateTime(p.learned_at)}` : ""}
+            </span>
+          )}
+        </p>
+      )}
+      <p className="text-xs text-muted">{status}</p>
+      <ErrorText error={toggle.error} />
+    </div>
+  );
+}
+
 function DetailsDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
   const qc = useQueryClient();
   const d = useContactDetail(c.id);
@@ -586,6 +637,7 @@ function DetailsDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
             )}
           </Row>
           <Row k="Route">{pathText(x)}</Row>
+          {x.preferred_route && <PreferredRouteRow c={c} p={x.preferred_route} />}
           {x.kind === 1 && (
             <Row k="Messages">
               {x.messages_received} received · {x.messages_sent} sent
@@ -698,6 +750,12 @@ function PathDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
           a repeater's key.
         </p>
         {d.data && <p>Current: {pathText(d.data)}</p>}
+        {d.data?.preferred_route?.enabled && (
+          <p className="rounded-lg bg-surface-2 p-3 text-muted">
+            A path starting at {d.data.preferred_route.repeater_name || "your preferred repeater"} becomes the one MeshHome uses
+            for this contact. Any other path turns the preferred repeater off for this contact.
+          </p>
+        )}
         <ol className="space-y-1.5">
           {hops.map((h, i) => (
             <li key={`${h}-${i}`} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5">

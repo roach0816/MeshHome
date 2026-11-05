@@ -31,11 +31,12 @@ from app.radio.base import (
     RadioChannel,
     RadioError,
     RemoteTicket,
+    hops_from_path,
 )
 from app.radio.meshcore_tcp import MeshCoreTcpRadio
 from app.radio.simulated import SimulatedRadio
 from app.realtime import hub
-from app.services import app_settings, bot, messaging, radio_hat, signed_messages, web_push
+from app.services import app_settings, bot, messaging, preferred_route, radio_hat, signed_messages, web_push
 from app.services.messaging import States
 from app.services.msg_paths import PathTracker
 
@@ -101,6 +102,12 @@ class RadioSupervisor:
         # slot -> channel key, in memory only: to open the packet of a channel message, whose
         # signature (if any) the radio's text frame leaves out. Never stored or logged.
         self._channel_keys: dict[int, bytes] = {}
+        # Preferred repeater (services/preferred_route.py): the setting, failed attempts on routes
+        # through it since it was last heard, and until when it counts as unavailable.
+        self._routing = app_settings.RoutingConfig()
+        self._repeater_failures = 0
+        self._repeater_down_until = 0.0
+        self._adverts_learned: dict[str, float] = {}  # packet key -> when; one route per advert
         self._stopping = False
 
     # ---- lifecycle -------------------------------------------------------------------
@@ -318,8 +325,10 @@ class RadioSupervisor:
         channels = await self._cmd(adapter.get_channels)
         self._remember_channels(channels)
         async with db.session_factory()() as s:
+            self._routing = await app_settings.get_routing_config(s)
             radio = await messaging.upsert_radio(s, snap)
             await messaging.sync_contacts(s, radio, contacts)
+            await self._learn_from_contacts(s, radio.id, adapter)
             await messaging.sync_channels(s, radio, channels, await app_settings.get_fingerprint_key(s))
             await s.commit()
             self._radio = radio
@@ -332,9 +341,140 @@ class RadioSupervisor:
         async with db.session_factory()() as s:
             radio = await s.get(Radio, self._radio.id)
             n = await messaging.sync_contacts(s, radio, contacts)
+            await self._learn_from_contacts(s, radio.id, adapter)
             await s.commit()
         hub.publish("contacts-updated")
         return n
+
+    # ---- preferred repeater (services/preferred_route.py) --------------------------------
+
+    @property
+    def preferred_repeater(self) -> str | None:
+        return self._routing.preferred_repeater
+
+    @property
+    def repeater_available(self) -> bool:
+        """False after attempts on routes through the preferred repeater kept failing, until this
+        radio hears a packet the repeater relayed (or a while passes)."""
+        return time.monotonic() >= self._repeater_down_until
+
+    def routing_changed(self, cfg: app_settings.RoutingConfig) -> None:
+        self._routing = cfg
+        self._repeater_works()
+
+    def _repeater_works(self) -> None:
+        self._repeater_failures = 0
+        self._repeater_down_until = 0.0
+
+    async def _learn_from_contacts(self, s, radio_id, adapter: RadioAdapter) -> None:
+        if self._routing.preferred_repeater:
+            await preferred_route.learn_from_contacts(
+                s, radio_id, self._routing.preferred_repeater, adapter.path_hash_size(), utcnow()
+            )
+
+    async def _learn(self, key_or_prefix: str, hops, source: str) -> None:
+        """Remember the route back through the preferred repeater to a flood packet's sender."""
+        rep = self._routing.preferred_repeater
+        if not rep or self._radio is None:
+            return
+        try:
+            async with db.session_factory()() as s:
+                await preferred_route.learn_from_flood(
+                    s, self._radio.id, key_or_prefix, hops, rep, source, utcnow()
+                )
+                await s.commit()
+        except Exception as exc:  # noqa: BLE001 - a nicety; never disturb collection
+            log.info("could not remember a route: %s", _safe_error(exc))
+
+    async def _set_route(
+        self, adapter: RadioAdapter, contact_id, public_key: str, path_hex: str | None
+    ) -> bool:
+        """Put a route on the radio (None: forget it, so the next send floods) and note it on the
+        contact so the app shows it before the next contact refresh."""
+        try:
+            if path_hex is None:
+                await self._cmd(adapter.configure, "contact_reset_path", {"public_key": public_key})
+            else:
+                await self._cmd(
+                    adapter.configure, "contact_set_path", {"public_key": public_key, "path_hex": path_hex}
+                )
+        except Exception as exc:  # noqa: BLE001 - the radio's own route still works
+            log.warning("could not change the route to a contact: %s", _safe_error(exc))
+            return False
+        size = adapter.path_hash_size()
+        async with db.session_factory()() as s:
+            c = await s.get(Contact, contact_id)
+            if c is not None:
+                path_len = len(path_hex) // (size * 2) if path_hex is not None else -1
+                c.meta = {**(c.meta or {}), "path_len": path_len, "path_hex": path_hex or ""}
+                await s.commit()
+        self._contacts_dirty.set()
+        return True
+
+    async def _prefer_route(self, public_key: str) -> str | None:
+        """Before a direct send: put the remembered route through the preferred repeater on the
+        radio. Returns the repeater's key when the send goes through it. While the repeater is
+        unavailable, a stored route through it is forgotten, so the send goes around it."""
+        try:
+            return await self._prefer_route_now(public_key)
+        except Exception as exc:  # noqa: BLE001 - never stop a send: the radio's own route still works
+            log.warning("could not use the preferred repeater: %s", _safe_error(exc))
+            return None
+
+    async def _prefer_route_now(self, public_key: str) -> str | None:
+        rep = self._routing.preferred_repeater
+        adapter = self._adapter
+        if not rep or adapter is None or self._radio is None or public_key == rep:
+            return None
+        size = adapter.path_hash_size()
+        async with db.session_factory()() as s:
+            c = (
+                await s.execute(
+                    select(Contact).where(
+                        Contact.radio_id == self._radio.id, Contact.public_key == public_key
+                    )
+                )
+            ).scalar_one_or_none()
+            if c is None or not preferred_route.enabled(c):
+                return None
+            meta = c.meta or {}
+            path_len = int(meta.get("path_len") if meta.get("path_len") is not None else -1)
+            current = hops_from_path(str(meta.get("path_hex") or ""), path_len, size)
+            path = preferred_route.route_for_radio(c, rep, size, utcnow())
+            contact_id = c.id
+        if not self.repeater_available:
+            if preferred_route.starts_at(current, rep):
+                await self._set_route(adapter, contact_id, public_key, None)
+            return None
+        if path is None:
+            return None
+        return rep if await self._set_route(adapter, contact_id, public_key, path) else None
+
+    async def _preferred_route_failed(self, public_key: str) -> None:
+        """Attempts on the route through the preferred repeater went unanswered: go without it for
+        this contact for a while, and after repeated failures treat the repeater as unavailable."""
+        self._repeater_failures += 1
+        if self._repeater_failures >= preferred_route.REPEATER_DOWN_AFTER_FAILURES:
+            self._repeater_down_until = time.monotonic() + preferred_route.REPEATER_DOWN_SECONDS
+            log.info(
+                "the preferred repeater isn't getting messages through; going around it until it's heard"
+            )
+        if self._radio is None:
+            return
+        try:
+            async with db.session_factory()() as s:
+                c = (
+                    await s.execute(
+                        select(Contact).where(
+                            Contact.radio_id == self._radio.id, Contact.public_key == public_key
+                        )
+                    )
+                ).scalar_one_or_none()
+                if c is not None:
+                    preferred_route.mark_failed(c, utcnow())
+                    await s.commit()
+        except Exception as exc:  # noqa: BLE001
+            log.info("could not record a failed route: %s", _safe_error(exc))
 
     # ---- node configuration ----------------------------------------------------------
 
@@ -441,13 +581,40 @@ class RadioSupervisor:
         adapter = self._adapter
         if adapter is None or not self.connected:
             raise RadioError("radio is not connected")
-        return await self._cmd(adapter.remote_send, public_key, kind, arg, timeout=20)
+        via = await self._prefer_route(public_key) if kind != "logout" else None
+        ticket = await self._cmd(adapter.remote_send, public_key, kind, arg, timeout=20)
+        ticket.via = via
+        return ticket
 
     async def remote_wait(self, ticket: RemoteTicket, timeout: float):
         adapter = self._adapter
         if adapter is None:
             raise RadioError("radio is not connected")
-        return await adapter.remote_wait(ticket, timeout)
+        try:
+            result = await adapter.remote_wait(ticket, timeout)
+        except TimeoutError:
+            if ticket.via:
+                # No answer on the route through the preferred repeater: the next try floods.
+                await self._preferred_route_failed(ticket.public_key)
+                c = await self._contact_id(ticket.public_key)
+                if c is not None and self._adapter is not None:
+                    await self._set_route(self._adapter, c, ticket.public_key, None)
+            raise
+        if ticket.via:
+            self._repeater_works()
+        return result
+
+    async def _contact_id(self, public_key: str):
+        if self._radio is None:
+            return None
+        async with db.session_factory()() as s:
+            return (
+                await s.execute(
+                    select(Contact.id).where(
+                        Contact.radio_id == self._radio.id, Contact.public_key == public_key
+                    )
+                )
+            ).scalar_one_or_none()
 
     async def trace(self, hops: list[bytes]) -> dict[str, Any]:
         """Trace a route of repeaters: out along `hops` and back the same way, so the probe
@@ -493,6 +660,12 @@ class RadioSupervisor:
         packet = packets.parse(raw)
         if packet is None:
             return
+        rep = self._routing.preferred_repeater
+        if rep and packet.flood and packet.hops and rep.startswith(packet.hops[-1]):
+            # The preferred repeater just relayed something: it's working.
+            self._repeater_works()
+            if packet.payload_type == packets.TYPE_ADVERT and len(packet.payload) >= 32:
+                await self._learn_from_advert(packet)
         copy = self._paths.heard(packet, snr, rssi)
         if copy is None:
             return
@@ -503,11 +676,37 @@ class RadioSupervisor:
                 if m is None:
                     return
                 m.meta = {**(m.meta or {}), "paths": [*(m.meta or {}).get("paths", []), entry]}
+                if rep and m.direction == "in" and entry.get("route") == "flood":
+                    # A later copy of a direct message that came through the repeater.
+                    conv = await s.get(Conversation, m.conversation_id)
+                    if conv is not None and conv.contact_id is not None and self._radio is not None:
+                        contact = await s.get(Contact, conv.contact_id)
+                        if contact is not None:
+                            await preferred_route.learn_from_flood(
+                                s,
+                                self._radio.id,
+                                contact.public_key,
+                                entry["hops"],
+                                rep,
+                                "message",
+                                utcnow(),
+                                only_if_none=True,
+                            )
                 await s.commit()
                 conv_id = m.conversation_id
             hub.publish("delivery-updated", message_id=str(message_id), conversation_id=str(conv_id))
         except Exception as exc:  # noqa: BLE001 - paths are a nicety; never disturb collection
             log.info("could not record a message path: %s", _safe_error(exc))
+
+    async def _learn_from_advert(self, packet: packets.Packet) -> None:
+        """An advert that came through the preferred repeater: remember the route back to its
+        node (any kind: people, repeaters, room servers, sensors). The first copy heard wins."""
+        now = time.monotonic()
+        if packet.key in self._adverts_learned:
+            return
+        self._adverts_learned = {k: t for k, t in self._adverts_learned.items() if now - t < 120}
+        self._adverts_learned[packet.key] = now
+        await self._learn(packet.payload[:32].hex(), packet.hops, "advert")
 
     def _claim_paths(self, msg: IncomingMessage) -> str | None:
         """Attach the routes this message was heard on (msg.meta["paths"]); returns the packet key."""
@@ -574,6 +773,8 @@ class RadioSupervisor:
                     await s.commit()
                 if path_key and created:
                     self._paths.follow(path_key, m.id, len((msg.meta or {}).get("paths", [])))
+                if created and msg.kind == "dm" and msg.pubkey_prefix:
+                    await self._learn_from_message(msg)
                 if self.status.storage_warning:
                     self.status.storage_warning = None
                     hub.publish("radio-status-changed", state=self.status.state)
@@ -603,6 +804,16 @@ class RadioSupervisor:
                 hub.publish("radio-status-changed", state=self.status.state)
                 await asyncio.sleep(delay)
                 delay = min(30.0, delay * 2)
+
+    async def _learn_from_message(self, msg: IncomingMessage) -> None:
+        """A direct message that came through the preferred repeater: remember the route back."""
+        rep = self._routing.preferred_repeater
+        for entry in (msg.meta or {}).get("paths", []) if rep else []:
+            if entry.get("route") == "flood" and preferred_route.route_from_flood(
+                entry.get("hops") or [], rep
+            ):
+                await self._learn(msg.pubkey_prefix, entry["hops"], "message")
+                return
 
     async def _run_bot(self, message_id) -> None:
         try:
@@ -655,7 +866,8 @@ class RadioSupervisor:
             if m is None:
                 return None
             conv = await s.get(Conversation, m.conversation_id)
-            # ("channel", slot, region scope, sign) or ("dm", public key, timestamp, attempt, reset route)
+            # ("channel", slot, region scope, sign) or
+            # ("dm", public key, timestamp, attempt, reset route, the preferred repeater's route failed)
             target: tuple | None = None
             if conv.kind == "channel" and conv.channel_id:
                 ch = await s.get(Channel, conv.channel_id)
@@ -665,7 +877,7 @@ class RadioSupervisor:
             elif conv.contact_id:
                 contact = await s.get(Contact, conv.contact_id)
                 if contact:
-                    target = ("dm", contact.public_key, None, 0, False)
+                    target = ("dm", contact.public_key, None, 0, False, False)
             if target is None:
                 m.state = States.FAILED
                 m.error = "This conversation is no longer available on the radio."
@@ -679,12 +891,15 @@ class RadioSupervisor:
             if target[0] == "dm":
                 # An automatic retry keeps the round's timestamp and counts the attempt up; otherwise
                 # (first send, or a manual retry, which clears the timestamp) a new round starts.
-                plan = messaging.next_retry(messaging.current_round(attempts)) if m.sender_timestamp else None
+                rnd = messaging.current_round(attempts)
+                plan = messaging.next_retry(rnd) if m.sender_timestamp else None
                 if plan is None:
                     m.sender_timestamp = int(time.time())
-                    plan = (0, False)
+                    plan, rnd = (0, False), []
                 attempt.round_attempt = plan[0]
-                target = ("dm", target[1], m.sender_timestamp, plan[0], plan[1])
+                # About to flood after the route got no ACK: was that the preferred repeater's route?
+                pinned_failed = plan[1] and any(a.via_repeater for a in rnd)
+                target = ("dm", target[1], m.sender_timestamp, plan[0], plan[1], pinned_failed)
             s.add(attempt)
             m.state = States.SENDING
             m.error = None
@@ -697,6 +912,7 @@ class RadioSupervisor:
         state, error, ack, deadline = States.UNCERTAIN, None, None, None
         signed: dict[str, Any] | None = None
         flood: bool | None = None
+        via: str | None = None
         try:
             if adapter is None:
                 raise RadioError("radio disconnected before transmission")
@@ -707,8 +923,13 @@ class RadioSupervisor:
                 if result.ok and after:
                     signed = {"v": 1, "key_id": after[2:10].hex(), "signature": after[10:].hex(), "ts": ts}
             else:
-                _, public_key, ts, n, reset_route = target
-                if reset_route:
+                _, public_key, ts, n, reset_route, pinned_failed = target
+                if pinned_failed:
+                    await self._preferred_route_failed(public_key)
+                if not reset_route:
+                    # The route through the preferred repeater, when there is one (preferred_route.py).
+                    via = await self._prefer_route(public_key)
+                else:
                     # Two attempts on the stored route got no ACK: forget it so this one floods.
                     try:
                         await self._cmd(adapter.configure, "contact_reset_path", {"public_key": public_key})
@@ -736,12 +957,12 @@ class RadioSupervisor:
                 States.UNCERTAIN,
                 "Interrupted while sending; it may or may not have been transmitted.",
             )
-            await self._finish_send(message_id, attempt_id, state, error, ack, deadline, flood=flood)
+            await self._finish_send(message_id, attempt_id, state, error, ack, deadline, flood=flood, via=via)
             raise
         except Exception as exc:  # noqa: BLE001
             state = States.UNCERTAIN
             error = f"Outcome unknown: {_safe_error(exc)}. It may or may not have been transmitted."
-        await self._finish_send(message_id, attempt_id, state, error, ack, deadline, signed, flood)
+        await self._finish_send(message_id, attempt_id, state, error, ack, deadline, signed, flood, via)
         hub.publish("delivery-updated", message_id=str(message_id), conversation_id=str(conversation_id))
 
     async def _signature_for(self, adapter: RadioAdapter, slot: int, body: str, ts: int) -> bytes | None:
@@ -763,7 +984,7 @@ class RadioSupervisor:
         return signed_messages.ending(bytes.fromhex(own), sig)
 
     async def _finish_send(
-        self, message_id, attempt_id, state, error, ack, deadline, signed=None, flood=None
+        self, message_id, attempt_id, state, error, ack, deadline, signed=None, flood=None, via=None
     ) -> None:
         async with db.session_factory()() as s:
             # Only while still sending: an ACK for an earlier attempt may have arrived meanwhile.
@@ -775,7 +996,14 @@ class RadioSupervisor:
             await s.execute(
                 update(SendAttempt)
                 .where(SendAttempt.id == attempt_id)
-                .values(finished_at=utcnow(), result=state, detail=error, expected_ack=ack, flood=flood)
+                .values(
+                    finished_at=utcnow(),
+                    result=state,
+                    detail=error,
+                    expected_ack=ack,
+                    flood=flood,
+                    via_repeater=via,
+                )
             )
             m = await s.get(Message, message_id)
             if m is not None and signed:
@@ -791,8 +1019,17 @@ class RadioSupervisor:
                 if rnd:
                     size = 1 if (m.meta or {}).get("bot") else messaging.round_size(rnd)
                     delivery = {"attempt": len(rnd), "of": size, "route": "flood" if flood else "direct"}
+                    if via and not flood:
+                        delivery["via"] = await self._repeater_name(s, via)
                     m.meta = {**(m.meta or {}), "delivery": delivery}
             await s.commit()
+
+    async def _repeater_name(self, s, key: str) -> str:
+        q = select(Contact.alias, Contact.name).where(Contact.public_key == key)
+        if self._radio is not None:
+            q = q.where(Contact.radio_id == self._radio.id)
+        row = (await s.execute(q.limit(1))).first()
+        return (row[0] or row[1] if row else None) or key[:8]
 
     async def _on_ack(self, code: str) -> None:
         code = code.lower()
@@ -811,7 +1048,16 @@ class RadioSupervisor:
                     .returning(Message.id, Message.conversation_id)
                 )
             ).first()
+            via = (
+                await s.execute(
+                    select(SendAttempt.via_repeater)
+                    .where(SendAttempt.expected_ack == code, SendAttempt.via_repeater.is_not(None))
+                    .limit(1)
+                )
+            ).scalar()
             await s.commit()
+        if via:
+            self._repeater_works()
         if row:
             hub.publish("delivery-updated", message_id=str(row[0]), conversation_id=str(row[1]))
         else:

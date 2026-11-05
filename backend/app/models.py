@@ -151,6 +151,9 @@ class Contact(Base):
     # suppressed (hidden, never unread, never notify). Reversible.
     blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     meta: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Preferred repeater (services/preferred_route.py): the remembered route through it ("hops",
+    # "source", "learned_at"), when it last failed ("failed_at"), and "off" if not used for this contact.
+    routing: Mapped[dict[str, Any] | None] = mapped_column()
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
@@ -252,6 +255,8 @@ class SendAttempt(Base):
     round_attempt: Mapped[int | None] = mapped_column(Integer)
     expected_ack: Mapped[str | None] = mapped_column(String(16), index=True)
     flood: Mapped[bool | None] = mapped_column(Boolean)
+    # The preferred repeater's public key, when this attempt was sent on the route through it.
+    via_repeater: Mapped[str | None] = mapped_column(String(64))
 
 
 class ReadPosition(Base):

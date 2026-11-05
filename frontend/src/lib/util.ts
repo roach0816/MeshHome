@@ -91,8 +91,9 @@ export function stateLabel(state: MessageState, kind: "dm" | "channel"): string 
   }
 }
 
-/** Automatic retries of a direct message (meta.delivery): the latest attempt, of how many, and its route. */
-export type Delivery = { attempt: number; of: number; route: "direct" | "flood" };
+/** Automatic retries of a direct message (meta.delivery): the latest attempt, of how many, its route,
+ * and the preferred repeater's name when it went on the route through it. */
+export type Delivery = { attempt: number; of: number; route: "direct" | "flood"; via?: string };
 
 export function deliveryOf(meta: Record<string, unknown> | undefined): Delivery | null {
   const d = meta?.delivery as Delivery | undefined;
@@ -102,16 +103,18 @@ export function deliveryOf(meta: Record<string, unknown> | undefined): Delivery 
 /** The delivery line under one of your messages, with its retries when there were any. */
 export function deliveryLabel(state: MessageState, kind: "dm" | "channel", d: Delivery | null): string {
   if (!d || kind !== "dm") return stateLabel(state, kind);
-  const by = d.route === "flood" ? " by flood" : "";
+  const by = d.route === "flood" ? " by flood" : d.via ? ` via ${d.via}` : "";
   switch (state) {
     case "queued": // waiting for its next attempt
       return d.attempt < d.of ? `Not confirmed yet · retrying (${d.attempt + 1} of ${d.of})` : stateLabel(state, kind);
     case "sending":
       return d.attempt < d.of ? `Sending attempt ${d.attempt + 1} of ${d.of}…` : stateLabel(state, kind);
     case "accepted":
-      return d.attempt > 1 ? `Sent${by} · awaiting delivery (attempt ${d.attempt} of ${d.of})` : stateLabel(state, kind);
+      if (d.attempt > 1) return `Sent${by} · awaiting delivery (attempt ${d.attempt} of ${d.of})`;
+      return d.via ? `Sent via ${d.via} · awaiting delivery` : stateLabel(state, kind);
     case "acknowledged":
-      return d.attempt > 1 ? `Delivered on attempt ${d.attempt}${by}` : stateLabel(state, kind);
+      if (d.attempt > 1) return `Delivered on attempt ${d.attempt}${by}`;
+      return d.via ? `Delivered via ${d.via}` : stateLabel(state, kind);
     case "no_ack":
       return d.attempt > 1 ? `Not confirmed delivered after ${d.attempt} attempts` : stateLabel(state, kind);
     default:

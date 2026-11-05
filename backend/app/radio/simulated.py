@@ -221,7 +221,8 @@ class SimulatedRadio(RadioAdapter):
         self._require()
         await asyncio.sleep(0.15)
         st = sim_state()
-        flood = st["contact_paths"].get(public_key, (-1, ""))[0] < 0
+        path_len, path_hex = st["contact_paths"].get(public_key, (-1, ""))
+        flood = path_len < 0
         st.setdefault("sent_dms", []).append(
             {
                 "public_key": public_key,
@@ -229,6 +230,7 @@ class SimulatedRadio(RadioAdapter):
                 "timestamp": timestamp,
                 "attempt": attempt,
                 "flood": flood,
+                "path": None if flood else path_hex,
             }
         )
         ack = self._rng.randbytes(4).hex()

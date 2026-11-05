@@ -94,6 +94,20 @@ class BotConfig(BaseModel):
 BOT_KEY = "bot"
 
 
+class RoutingConfig(BaseModel):
+    # The repeater (its public key) that direct traffic goes through whenever that works; see
+    # services/preferred_route.py. None: leave routing to the radio.
+    preferred_repeater: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{64}$")
+
+    @field_validator("preferred_repeater")
+    @classmethod
+    def _lower(cls, v: str | None) -> str | None:
+        return v.lower() if v else None
+
+
+ROUTING_KEY = "routing"
+
+
 class WeatherConfig(BaseModel):
     # Before bot apps: the Ecowitt gateway for /weather. Read once to install the Ecowitt
     # app with the same address (bot_apps.migrate), and kept so a rollback still finds it.
@@ -202,6 +216,15 @@ async def get_bot_config(db: AsyncSession) -> BotConfig:
 
 async def put_bot_config(db: AsyncSession, cfg: BotConfig) -> None:
     await _put(db, BOT_KEY, cfg.model_dump())
+
+
+async def get_routing_config(db: AsyncSession) -> RoutingConfig:
+    raw = await _get(db, ROUTING_KEY)
+    return RoutingConfig.model_validate(raw) if raw else RoutingConfig()
+
+
+async def put_routing_config(db: AsyncSession, cfg: RoutingConfig) -> None:
+    await _put(db, ROUTING_KEY, cfg.model_dump())
 
 
 async def get_weather_config(db: AsyncSession) -> WeatherConfig:

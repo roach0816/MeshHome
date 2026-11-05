@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.14**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.15**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -568,7 +568,8 @@ These act on the radio itself; it must be connected and the contact must still b
 | `POST /api/contacts/refresh` | Re-read the radio's contact list. Returns `{"count": n}`. |
 | `POST /api/contacts/{id}/share` | Re-broadcast the contact's advert to nearby nodes. Returns `{"ok": true}`. |
 | `GET /api/contacts/{id}/export` | A `meshcore://` contact card: `{"uri": "meshcore://…"}` (read). |
-| `PUT /api/contacts/{id}/path` | Set a fixed route: `{"hops": ["a1", "b2"]}`; `[]` means direct. `204`. |
+| `PUT /api/contacts/{id}/path` | Set a fixed route: `{"hops": ["a1", "b2"]}`; `[]` means direct. `204`. With a preferred repeater set, a route starting at it becomes the contact's remembered route; any other route turns the preferred repeater off for the contact. |
+| `PUT /api/contacts/{id}/preferred-route` | `{"enabled": false}` leaves this contact's route to the radio; `true` (the default) uses the preferred repeater again and ends any pause. `204`. `GET /api/contacts/{id}` shows it as `preferred_route`: `repeater_key`, `repeater_name`, `enabled`, `hops` (the remembered route, `[]` until learned), `source` (`radio`, `message`, `advert` or `manual`), `learned_at`, `paused_until` (set for 30 minutes after attempts on it went unanswered) and `repeater_available`; `null` when no preferred repeater is set, and for the repeater itself. |
 | `POST /api/contacts/{id}/reset-path` | Forget the route (back to flood). `204`. |
 | `POST /api/radio/trace` | Trace a route of repeaters: `{"hops": ["<key or prefix>", …]}` (1–8, in order from this radio). The probe goes out along them and back the same way. Returns `{"hops": [{"hash": "…", "snr": 6.25, "names": ["Hilltop"]}, …], "final_snr": 9.5, "elapsed_ms": 980}`, each repeater out and back with the SNR it heard; `504` if it didn't come back. |
 | `DELETE /api/contacts/{id}` | Remove the contact from the radio. The archive keeps it and its messages. `204`. |
@@ -596,6 +597,7 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 | `GET /api/settings/notifications` | `{"sound": "off" \| "all" \| "dms"}` (browser notification sound). |
 | `GET /api/settings/map` | Map tile URL, attribution, maximum zoom, and `place_names` (look up place names for node positions). |
 | `GET /api/settings/app-install` | "Install as an app": `{"enabled": false, "https": true}`. `https` says whether this request reached the server over HTTPS (directly or through a proxy that sends `X-Forwarded-Proto: https`). While `enabled`, `/manifest.webmanifest` serves the web app manifest; otherwise it answers `404`. |
+| `GET /api/settings/routing` | The preferred repeater: `{"preferred_repeater": "<64 hex public key>" \| null}`. Direct messages, bot replies and remote requests go through it whenever that works; see [features](features.md#messaging). Messages sent through it have `meta.delivery.via` (the repeater's name). |
 | `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone", "env": true}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, `/env` (when `env` is true and an environment sensor is working on a native install; see `GET /api/sensors`), and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
 | `GET /api/settings/radio` | Radio connection settings: `mode` (`tcp`, `simulated` or `none`), `host`, `port`, `paused`, `sim_interval_seconds`. |
 | `GET /api/radio/config` | The connected node's configuration: identity, LoRa parameters, channels (names and key *types*, never keys), behaviour and telemetry. `409` if the radio is offline. |
@@ -604,8 +606,8 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 | `GET /api/radio/firmware` | The radio's MeshCore firmware compared with MeshCore's latest companion release: `{"available", "model", "current_version", "latest": {"version", "published_at", "notes_url"}, "up_to_date"}`. `up_to_date` is `null` when unknown; `available: false` (with a `reason`) for the simulated radio or the radio HAT. |
 | `GET /api/system/radio-hat` | Raspberry Pi installs: the optional radio HAT (RAK6421 run by ZephCore): `phase` (`absent`, `installing`, `needs_reboot`, `ready`, `stopped`, …), `available`, Pi `model`, `installed_version`, and the service state. |
 
-`PUT /api/settings/notifications` and `PUT /api/settings/map` are **write** and take the same
-shape they return.
+`PUT /api/settings/notifications`, `PUT /api/settings/map` and `PUT /api/settings/routing` are
+**write** and take the same shape they return.
 
 ### Not available to API keys
 
@@ -753,7 +755,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

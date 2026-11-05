@@ -27,6 +27,19 @@ A tour of everything MeshHome does. The [README](../README.md#what-it-does) has 
   stored route gets two flood attempts. An ACK for any attempt counts as delivered. The message
   shows each step ("Sending attempt 2 of 3…", "Delivered on attempt 3 by flood"), and **Retry**
   afterwards starts a fresh round. Bot replies are sent once, to save airtime.
+- **Preferred repeater** (Settings → Radio): pick the repeater you rely on, such as one on your roof,
+  and direct traffic goes through it whenever that works. The radio on its own keeps whichever route
+  answered a flood first, which can skip your repeater. MeshHome instead remembers a route through
+  it for each contact and puts it on the radio before every direct send: messages, bot replies,
+  room server posts, and remote management. Routes are learned from the radio's own route, from
+  direct messages and adverts that arrive through the repeater (so repeaters, room servers and
+  sensors get one too), and from a path you set that starts at it. If two attempts on it go
+  unanswered, the next attempt floods around it and that contact skips it for 30 minutes. When
+  that happens to two contacts in a row, the repeater counts as down, and sends go around it,
+  until your radio hears it relay something. Delivered messages say so ("Delivered via Roof").
+  A contact's details show its remembered route, with a switch to turn it off for that contact.
+  Setting a path by hand that doesn't start at the repeater also turns it off for that contact.
+  Channel messages always flood through every repeater, so this doesn't apply to them.
 - **Add channel** (the **+** next to the search box) offers the same choices as the MeshCore app:
   create a private channel, join a private channel, join Public, join a hashtag channel, or scan a QR
   code. Hashtag and new private channels come with their key, a QR code, and a

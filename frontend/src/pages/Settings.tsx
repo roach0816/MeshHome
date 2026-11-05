@@ -34,7 +34,17 @@ import { ApiKeysSection } from "../components/ApiKeys";
 import { BackupSection } from "../components/BackupRestore";
 import { RadioHatPanel, useRadioHat } from "../components/RadioHat";
 import { FirmwareBadge, useRadioFirmware } from "../components/RadioFirmware";
-import { api, type AppInstall, type Device, type MapConfig, type RadioConfig, type RadioMode, type SensorsState } from "../lib/api";
+import {
+  api,
+  type AppInstall,
+  type ContactPage,
+  type Device,
+  type MapConfig,
+  type RadioConfig,
+  type RadioMode,
+  type RoutingConfig,
+  type SensorsState,
+} from "../lib/api";
 import {
   disablePush,
   enablePush,
@@ -46,7 +56,7 @@ import {
 } from "../lib/pwa";
 import { Badge, Button, ErrorText, Field, Input } from "../components/ui";
 import { InfoTip } from "../components/InfoTip";
-import { Section } from "../components/SettingsKit";
+import { Section, Select } from "../components/SettingsKit";
 import { Dialog } from "../components/Dialog";
 import { radioSummary } from "../components/StatusPill";
 import { useStatus } from "./Shell";
@@ -210,6 +220,7 @@ function CategoryContent({ id }: { id: CategoryId }) {
         <>
           <RadioSection />
           <DeviceSection />
+          <RoutingSection />
         </>
       );
     case "notifications":
@@ -546,6 +557,65 @@ function DeviceSection() {
           {d.channels.length === 0 && <li className="px-3 py-2 text-muted">No channels.</li>}
         </ul>
       </div>
+    </Section>
+  );
+}
+
+function RoutingSection() {
+  const qc = useQueryClient();
+  const cfg = useQuery({ queryKey: ["routing-settings"], queryFn: () => api<RoutingConfig>("/api/settings/routing") });
+  const repeaters = useQuery({
+    queryKey: ["contacts", "repeaters-for-routing"],
+    queryFn: () => api<ContactPage>("/api/contacts?kind=2&page_size=50&sort=last_heard"),
+  });
+  const save = useMutation({
+    mutationFn: (preferred_repeater: string | null) =>
+      api<RoutingConfig>("/api/settings/routing", { method: "PUT", json: { preferred_repeater } }),
+    onSuccess: (v) => {
+      qc.setQueryData(["routing-settings"], v);
+      qc.invalidateQueries({ queryKey: ["contact"] });
+    },
+  });
+  const current = save.isPending ? (save.variables ?? null) : (cfg.data?.preferred_repeater ?? null);
+  const items = repeaters.data?.items ?? [];
+  const options = [
+    { value: "", label: "None: the radio chooses each route" },
+    ...items.map((r) => ({
+      value: r.public_key,
+      label: `${r.alias || r.name || r.public_key.slice(0, 8)}${r.last_advert_at ? ` · heard ${relativeSeconds(Date.parse(r.last_advert_at) / 1000)}` : ""}`,
+    })),
+  ];
+  if (current && !items.some((r) => r.public_key === current)) {
+    options.push({ value: current, label: `${current.slice(0, 8)}… (not in your contacts)` });
+  }
+  return (
+    <Section
+      title="Preferred repeater"
+      description="Send direct messages through one repeater whenever that works."
+      info={
+        <>
+          <p>
+            The radio keeps one route per contact and takes whichever route answers a flood first, which can skip your own
+            repeater. With a preferred repeater, MeshHome remembers a route through it for each contact (from the radio, from
+            messages and adverts that arrive through it, or a path you set) and uses it for direct messages, bot replies, room
+            servers and remote management.
+          </p>
+          <p>
+            If two attempts on it go unanswered, the next attempt floods around it and that contact skips it for 30 minutes.
+            When that happens to two contacts in a row, the repeater counts as down until your radio hears it relay something.
+          </p>
+          <p>Channel messages always flood through every repeater, so this doesn't apply to them.</p>
+        </>
+      }
+    >
+      {cfg.data ? (
+        <Field label="Repeater" htmlFor="pref-repeater" hint="Each contact can opt out in its details.">
+          <Select id="pref-repeater" value={current ?? ""} options={options} disabled={save.isPending} onChange={(v) => save.mutate(v || null)} />
+        </Field>
+      ) : (
+        <ErrorText error={cfg.error} />
+      )}
+      <ErrorText error={save.error ?? repeaters.error} />
     </Section>
   );
 }

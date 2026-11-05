@@ -18,11 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_auth
 from app.db import get_db
-from app.models import AuditEvent, Contact, Conversation, Message, Radio
+from app.models import AuditEvent, Contact, Conversation, Message, Radio, utcnow
 from app.radio.base import MAX_PATH_BYTES, NotSupported, RadioError, hops_from_path
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import messaging
+from app.services import messaging, preferred_route
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -50,6 +50,23 @@ class ContactPage(BaseModel):
     page_size: int
 
 
+class PreferredRouteOut(BaseModel):
+    """The preferred repeater (Settings → Radio) as it applies to this contact."""
+
+    repeater_key: str
+    repeater_name: str | None
+    # Off for this contact: the radio's own route is used.
+    enabled: bool
+    # The remembered route through the repeater ([] until one is learned), how, and when.
+    hops: list[str]
+    source: Literal["radio", "message", "advert", "manual"] | None
+    learned_at: datetime | None
+    # Not used until then, after attempts on it went unanswered.
+    paused_until: datetime | None
+    # Whether the repeater currently counts as reachable (it is skipped while it doesn't).
+    repeater_available: bool
+
+
 class ContactDetail(ContactOut):
     lat: float | None
     lon: float | None
@@ -59,6 +76,12 @@ class ContactDetail(ContactOut):
     path_hash_size: int
     messages_received: int
     messages_sent: int
+    # Null when no preferred repeater is set, or for the repeater itself.
+    preferred_route: PreferredRouteOut | None = None
+
+
+class PreferredRouteIn(BaseModel):
+    enabled: bool
 
 
 class ContactMatch(ContactOut):
@@ -280,6 +303,30 @@ async def contact_detail(
         path_hash_size=size,
         messages_received=received,
         messages_sent=sent,
+        preferred_route=await _preferred_route(db, c),
+    )
+
+
+async def _preferred_route(db: AsyncSession, c: Contact) -> PreferredRouteOut | None:
+    rep = supervisor.preferred_repeater
+    if not rep or c.public_key == rep:
+        return None
+    rep_row = (
+        await db.execute(select(Contact).where(Contact.radio_id == c.radio_id, Contact.public_key == rep))
+    ).scalar_one_or_none()
+    r = c.routing or {}
+    hops = preferred_route.remembered(c, rep)
+    until = preferred_route.paused_until(c)
+    learned = r.get("learned_at") if hops else None
+    return PreferredRouteOut(
+        repeater_key=rep,
+        repeater_name=(rep_row.alias or rep_row.name) if rep_row else None,
+        enabled=preferred_route.enabled(c),
+        hops=hops,
+        source=r.get("source") if hops and r.get("source") in preferred_route.SOURCES else None,
+        learned_at=datetime.fromisoformat(learned) if learned else None,
+        paused_until=until if until and until > utcnow() else None,
+        repeater_available=supervisor.repeater_available,
     )
 
 
@@ -370,6 +417,33 @@ async def set_path(
     if len(hops) * size > MAX_PATH_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Path is too long for the radio")
     await radio_contact_op(db, c, "contact_set_path", {"path_hex": "".join(hops)})
+    rep = supervisor.preferred_repeater
+    if rep and c.public_key != rep:
+        # A route set by hand: through the preferred repeater, it becomes the one to use; any other
+        # route is your choice for this contact, so the preferred repeater is turned off for it.
+        await db.refresh(c)
+        if preferred_route.starts_at(hops, rep):
+            preferred_route.remember(c, hops, "manual", utcnow())
+        else:
+            preferred_route.set_enabled(c, False)
+        await db.commit()
+
+
+@router.put("/{contact_id}/preferred-route", status_code=204)
+async def set_preferred_route(
+    contact_id: uuid.UUID,
+    body: PreferredRouteIn,
+    ctx: AuthContext = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use the preferred repeater for this contact (the default), or leave its route to the radio."""
+    c = await _contact(db, contact_id)
+    preferred_route.set_enabled(c, body.enabled)
+    db.add(
+        AuditEvent(kind="contact.preferred_route", detail={"contact": c.public_key, "enabled": body.enabled})
+    )
+    await db.commit()
+    hub.publish("contacts-updated")
 
 
 @router.delete("/{contact_id}", status_code=204)

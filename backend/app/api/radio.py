@@ -252,6 +252,32 @@ async def put_bot(
     return body
 
 
+@router.get("/settings/routing", response_model=app_settings.RoutingConfig)
+async def get_routing(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
+    return await app_settings.get_routing_config(db)
+
+
+@router.put("/settings/routing", response_model=app_settings.RoutingConfig)
+async def put_routing(
+    body: app_settings.RoutingConfig,
+    ctx: AuthContext = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """The preferred repeater: direct traffic goes through it whenever that works."""
+    await app_settings.put_routing_config(db, body)
+    db.add(AuditEvent(kind="settings.routing", detail=body.model_dump()))
+    await db.commit()
+    supervisor.routing_changed(body)
+    if body.preferred_repeater and supervisor.connected:
+        try:
+            await supervisor.refresh_contacts()  # remembers the radio's routes through it at once
+        except (RadioError, TimeoutError):
+            pass
+    hub.publish("settings-updated", key="routing")
+    hub.publish("contacts-updated")
+    return body
+
+
 class TraceIn(BaseModel):
     # Repeaters in order from this radio, as public keys or key prefixes (hex). The trace goes out
     # along them and comes back the same way.
