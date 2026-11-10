@@ -169,6 +169,10 @@ message:
 - `/info`: the node's name, MeshHome version, time online, radio settings and contact count.
 - `/ping`: how your message arrived (SNR, RSSI, hops or direct route).
 - `/help`: the list of commands, including those added by apps.
+
+A reply too long for one direct message (150 bytes) goes out as up to three, marked `(1/2)`, `(2/2)`
+and so on, in order. The bot only answers direct messages, which are never signed, so signing a
+channel doesn't shorten its replies.
 - `/env`: the readings of the environment sensor on this Pi ([Sensors on the Pi](#sensors-on-the-pi)),
   such as `🌡️ 21.4°C · 💧 48% RH · ⏲️ 1013.2 hPa · 🍃 air 120 kΩ`. **Answer /env**, beside it in the
   command list, turns it off; when it's on it follows **Who can use it** like the other commands.

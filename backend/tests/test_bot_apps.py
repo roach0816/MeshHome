@@ -100,9 +100,21 @@ def test_ecowitt_recipe_matches_the_old_weather_command():
     assert bot_recipes.compose(cmd, METRIC_OLD) == (
         "21.5°C 58% RH · wind 1.5 m/s WSW, gust 3.1 · rain today 2.4 mm · AQI 53 PM2.5 13 PM10 13.9 CO2 880ppm"
     )
-    cmd.reply.max_bytes = 90  # extras are dropped from the end of the droppable part to fit
+    # Too long for one message: nothing is dropped, it's sent as two.
+    cmd.reply.max_bytes = 90
+    full = bot_recipes.compose(cmd, METRIC_OLD)
+    assert full.endswith("CO2 880ppm")
+    assert bot_recipes.split(full, 90) == (
+        [
+            "21.5°C 58% RH · wind 1.5 m/s WSW, gust 3.1 · rain today 2.4 mm (1/2)",
+            "AQI 53 PM2.5 13 PM10 13.9 CO2 880ppm (2/2)",
+        ],
+        False,
+    )
+    # Extras are dropped from the end of the droppable part only when three messages can't carry it.
+    cmd.reply.max_bytes = 40
     short = bot_recipes.compose(cmd, METRIC_OLD)
-    assert len(short.encode()) <= 90 and "CO2" not in short and short.startswith("21.5°C")
+    assert "CO2" not in short and short.startswith("21.5°C") and bot_recipes.fits(short, 40)
     assert bot_recipes.compose(cmd, {"common_list": [{"id": "0x02", "val": "--"}]}) == (
         "The weather station reported no outdoor readings."
     )

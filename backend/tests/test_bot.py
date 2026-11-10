@@ -126,13 +126,11 @@ async def test_bot_answers_commands_from_allowed_contacts(client, monkeypatch):
     await wait_for(sent)
 
 
-def test_parse_and_fit():
+def test_parse():
     assert bot.parse("/info") == ("info", None)
     assert bot.parse("  /Ping@Home Extra words") == ("ping", "extra")
     assert bot.parse("/ha " + "x" * 30) == ("ha", "x" * 20)
     assert bot.parse("hello /info") is None and bot.parse("/") is None and bot.parse("") is None
-    long = bot._fit("é" * 200)
-    assert len(long.encode()) <= 150 and long.endswith("...")
     assert bot._route({"path_len": 255, "SNR": -3.5}) == "SNR -3.5 dB, direct route"
     assert bot._route({"path_len": 0}) == "0 hops (heard directly)"
 
@@ -149,3 +147,25 @@ async def test_wait_turn_queues_a_few_then_drops(monkeypatch):
     # One goes at once, three wait their turn, the fifth is dropped.
     assert sorted(results) == [False, True, True, True, True]
     assert bot._waiting[who] == 0
+
+
+def test_long_replies_are_split():
+    from app.services.bot_recipes import split
+
+    assert split("pong") == (["pong"], False)
+    help_ = (
+        "Commands: /help (list the commands), /info (about this node), /ping (how your message "
+        "arrived), /env (temperature, humidity and pressure here), /weather (weather at home)"
+    )
+    parts, cut = split(help_)
+    assert not cut and len(parts) == 2
+    assert parts[0].endswith("pressure here) (1/2)") and parts[1] == "/weather (weather at home) (2/2)"
+    assert all(len(p.encode()) <= 150 for p in parts)
+    # " · " is the preferred place to split, and is dropped.
+    parts, _ = split(" · ".join(["x" * 60] * 3))
+    assert parts == ["x" * 60 + " · " + "x" * 60 + " (1/2)", "x" * 60 + " (2/2)"]
+    # Past three messages the rest is cut short, never splitting a character.
+    parts, cut = split("é" * 400)
+    assert cut and len(parts) == 3 and parts[2].endswith("... (3/3)")
+    assert all(len(p.encode()) <= 150 for p in parts)
+    assert split("word " * 40, limit=60)[0][0] == ("word " * 11).strip() + " (1/3)"

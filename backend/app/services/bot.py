@@ -4,6 +4,9 @@ Off until the owner turns it on (Settings → Bot). Only direct messages from kn
 considered, never channels; by default only favourite contacts may use it. Replies go through the
 normal outgoing queue, so they are archived and delivered like any message the owner sends.
 
+A reply too long for one message is split over up to three (bot_recipes.split), each marked
+"(1/2)" and so on; the send queue delivers them in order.
+
 Airtime is precious, so replies are rate limited (per contact and overall; quick follow-up
 commands wait their turn instead of being dropped), unknown commands get one short hint, and commands that arrive late (e.g. collected after the radio was offline) are
 ignored rather than answered out of context.
@@ -45,14 +48,6 @@ COMMANDS = {
 _last_reply: dict[uuid.UUID, float] = {}
 _recent: deque[float] = deque()
 _waiting: dict[uuid.UUID, int] = {}
-
-
-def _fit(text: str, limit: int = DM_MAX_BYTES) -> str:
-    """Trim to the DM size limit in UTF-8 bytes without splitting a character."""
-    raw = text.encode()
-    if len(raw) <= limit:
-        return text
-    return raw[: limit - 3].decode(errors="ignore").rstrip() + "..."
 
 
 def _duration(seconds: float) -> str:
@@ -149,7 +144,8 @@ def parse(body: str) -> tuple[str, str | None] | None:
 
 
 async def handle(message_id: uuid.UUID, *, connected_since: float | None = None) -> str | None:
-    """Answer one received message if it is a bot command. Returns the reply text, if any."""
+    """Answer one received message if it is a bot command. Returns the reply text, if any (its
+    messages one per line, when it was split)."""
     async with db.session_factory()() as s:
         cfg = await app_settings.get_bot_config(s)
         if not cfg.enabled:
@@ -186,6 +182,7 @@ async def handle(message_id: uuid.UUID, *, connected_since: float | None = None)
         # /env answers from the environment sensor on this Pi, when there is one (services/sensors.py).
         env = command == "env" and cfg.env and sensors.available() and sensors.manager.env_status == "ok"
         app = None if command in COMMANDS or env else await bot_apps.find_command(s, command)
+        limit = DM_MAX_BYTES
         if command == "help":
             listed = {k: (f"/{k}", v) for k, v in COMMANDS.items()}
             if cfg.env and sensors.available() and sensors.manager.env_status == "ok":
@@ -197,6 +194,7 @@ async def handle(message_id: uuid.UUID, *, connected_since: float | None = None)
             reply = "Commands: " + ", ".join(f"{k} ({v})" for k, v in listed.values())
         elif app is not None:
             reply = await _app_reply(app, command, arg)
+            limit = app.recipe.command(command).reply.max_bytes
         elif env:
             reply = sensors.manager.env_reply((await app_settings.get_sensors_config(s)).units)
         elif command == "info":
@@ -206,20 +204,25 @@ async def handle(message_id: uuid.UUID, *, connected_since: float | None = None)
             reply = f"pong · {route}" if route else "pong"
         else:
             reply = f"Unknown command /{command[:20]}. Try /help"
-        reply = _fit(reply)
+        parts, cut = bot_recipes.split(reply, limit)
+        if cut:
+            log.info("bot: the reply to /%s was cut short to fit %d messages", command, len(parts))
 
-        # Derived from the command's id: handling the same message twice cannot send twice.
-        out, created = await messaging.create_outgoing(
-            s,
-            conv,
-            reply,
-            f"bot-{message_id.hex}",
-            get_settings().send_expiry_seconds,
-            radio.is_simulated,
-        )
-        if created:
-            out.meta = {"bot": command}
+        created_ids = []
+        for i, part in enumerate(parts, 1):
+            # Derived from the command's id: handling the same message twice cannot send twice.
+            out, created = await messaging.create_outgoing(
+                s,
+                conv,
+                part,
+                f"bot-{message_id.hex}" + (f"-{i}" if i > 1 else ""),
+                get_settings().send_expiry_seconds,
+                radio.is_simulated,
+            )
+            if created:
+                out.meta = {"bot": command}
+                created_ids.append(out.id)
         await s.commit()
-    if created:
-        hub.publish("message-created", conversation_id=str(conv.id), message_id=str(out.id))
-    return reply
+    for mid in created_ids:
+        hub.publish("message-created", conversation_id=str(conv.id), message_id=str(mid))
+    return "\n".join(parts)

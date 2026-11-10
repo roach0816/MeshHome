@@ -289,7 +289,7 @@ function SettingsForm({
   const arg = groupKey && groups.includes(group) ? group : "";
   const test = useMutation({
     mutationFn: () =>
-      api<{ command: string; reply: string }>(`/api/bot/apps/${app.id}/test`, {
+      api<{ command: string; reply: string; messages: string[] }>(`/api/bot/apps/${app.id}/test`, {
         json: { command, settings: values, arg: arg || null },
       }),
   });
@@ -365,8 +365,15 @@ function SettingsForm({
       </div>
       {test.data && (
         <div className="rounded-lg border border-ok/40 bg-ok/5 px-3 py-2 text-sm" role="status">
-          <p className="text-xs text-muted">/{test.data.command} would reply:</p>
-          <p className="mt-0.5 font-medium">{test.data.reply}</p>
+          <p className="text-xs text-muted">
+            /{test.data.command} would reply
+            {test.data.messages.length > 1 ? ` in ${test.data.messages.length} messages` : ""}:
+          </p>
+          {test.data.messages.map((m, i) => (
+            <p key={i} className="mt-0.5 font-medium">
+              {m}
+            </p>
+          ))}
         </div>
       )}
       <ErrorText error={test.error ?? error} />

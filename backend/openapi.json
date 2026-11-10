@@ -8087,12 +8087,20 @@
           "reply": {
             "type": "string",
             "title": "Reply"
+          },
+          "messages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Messages"
           }
         },
         "type": "object",
         "required": [
           "command",
-          "reply"
+          "reply",
+          "messages"
         ],
         "title": "TestOut"
       },

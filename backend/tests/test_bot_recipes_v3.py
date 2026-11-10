@@ -154,8 +154,12 @@ async def test_group_command_partial_and_failed(monkeypatch):
 
 async def test_group_reply_drops_items_to_fit(monkeypatch):
     raw = copy.deepcopy(HA)
-    raw["commands"][0]["reply"]["max_bytes"] = 30
     _home_assistant(monkeypatch)
+    raw["commands"][0]["reply"]["max_bytes"] = 30  # too long for one message, but two carry it
+    assert await bot_recipes.run(bot_recipes.load(raw), "ha", HA_SETTINGS, "garage") == (
+        "Left garage: closed · Right garage: open"
+    )
+    raw["commands"][0]["reply"]["max_bytes"] = 20  # even three can't: dropped from the end
     assert await bot_recipes.run(bot_recipes.load(raw), "ha", HA_SETTINGS, "garage") == "Left garage: closed"
 
 

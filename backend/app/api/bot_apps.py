@@ -292,6 +292,8 @@ class TestIn(BaseModel):
 class TestOut(BaseModel):
     command: str
     reply: str
+    # The direct messages the reply would go out as (more than one when it's long).
+    messages: list[str]
 
 
 @router.post("/{app_id}/test", response_model=TestOut)
@@ -316,4 +318,5 @@ async def test(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     except bot_recipes.SourceError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-    return TestOut(command=command, reply=reply)
+    limit = recipe.command(command).reply.max_bytes
+    return TestOut(command=command, reply=reply, messages=bot_recipes.split(reply, limit)[0])

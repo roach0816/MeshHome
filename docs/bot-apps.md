@@ -21,7 +21,10 @@ An app is a JSON *recipe*, never code. MeshHome runs every recipe with the same 
     to the app's upload address, and commands use the latest reading.
 - **A login** (recipe format 3), for devices that only accept a session: a JSON POST to the same
   local device, whose session token the sources then send. It's the only request that isn't a GET.
-- **Commands**: pick values out of the data and word a reply that fits one direct message. Replies
+- **Commands**: pick values out of the data and word a reply. A reply longer than one direct message
+  (`reply.max_bytes`, at most 150 bytes) is sent as up to three, split at ` · `, `; `, `, ` or a
+  space and marked `(1/2)`, `(2/2)`; items marked `"drop": "end"` are dropped only when even three
+  can't carry it all, and past that the last message is cut short. Replies
   can only use values from the data, never your settings. The one exception is a command that reads
   a group (below): when it's sent without a group, or with an unknown one, it lists your group
   names, which you chose as labels for use over the air.
@@ -112,7 +115,7 @@ FORMAT.md has full examples.
 - **`"group": "<groups setting>"`**: the command is sent as `/ha garage`, and `/help` lists it as
   `/ha <group>`. It reads its one `source` once per ID in the group (together, each cached
   separately), words `reply.each` per response in group order, and joins them with `reply.join`,
-  dropping from the end to fit. IDs that fail or can't fill `each` are left out: if every request
+  dropping from the end when even three messages can't carry them all. IDs that fail or can't fill `each` are left out: if every request
   fails the reply is `unavailable`, and if none fills `each` it's `empty`. A group command uses
   `each` instead of `parts`.
   - `reply.no_group` (default `Groups: {groups}`) answers a command sent without a group;

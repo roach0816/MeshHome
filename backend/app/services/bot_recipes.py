@@ -259,6 +259,7 @@ class Reply(BaseModel):
     parts: list[Part] = Field(default_factory=list, max_length=12)
     join: str = Field(default=" · ", max_length=5)
     item_join: str = Field(default=" ", max_length=5)
+    # The size of each message; a longer reply is split over up to REPLY_MAX_MESSAGES of them.
     max_bytes: int = Field(default=DM_MAX_BYTES, ge=20, le=DM_MAX_BYTES)
     empty: str = Field(default="No data right now.", max_length=140)
     unavailable: str = Field(default="Not available right now.", max_length=140)
@@ -1060,6 +1061,54 @@ def _fit(text: str, limit: int) -> str:
     return text if len(raw) <= limit else raw[: limit - 3].decode(errors="ignore").rstrip() + "..."
 
 
+# A reply too long for one direct message goes out as up to this many, each ending " (1/2)" so the
+# reader knows more is coming (and notices one that never arrives). Past that it is cut short.
+REPLY_MAX_MESSAGES = 3
+_MARK_BYTES = len(" (9/9)")
+# Where a reply may be split, best first (the separator itself is dropped).
+_BREAKS = (" · ", "; ", ", ", " ")
+
+
+def _take(text: str, room: int) -> tuple[str, str]:
+    """The start of text that fits in room bytes, ending at the best break, and what's left."""
+    n = len(text.encode()[:room].decode(errors="ignore"))  # characters that fit
+    for sep in _BREAKS:
+        i = text.rfind(sep, 0, n + len(sep))  # a separator starting right at the cut counts too
+        if i >= n // 3:
+            return text[:i].rstrip(), text[i + len(sep) :].lstrip()
+    return text[:n], text[n:]  # one long word: cut it
+
+
+def split(
+    text: str, limit: int = DM_MAX_BYTES, max_messages: int = REPLY_MAX_MESSAGES
+) -> tuple[list[str], bool]:
+    """A reply as the direct messages that carry it (each at most limit UTF-8 bytes), and whether
+    it had to be cut short. Long replies are split at " · ", "; ", ", " or a space."""
+    text = text.strip()
+    if len(text.encode()) <= limit or max_messages < 2:
+        return [_fit(text, limit)], len(text.encode()) > limit
+    room = limit - _MARK_BYTES
+    out: list[str] = []
+    rest, cut = text, False
+    while rest:
+        if len(rest.encode()) <= room:
+            out.append(rest)
+            break
+        if len(out) == max_messages - 1:
+            out.append(_fit(rest, room))
+            cut = True
+            break
+        head, rest = _take(rest, room)
+        out.append(head)
+    n = len(out)
+    return [f"{m} ({i}/{n})" for i, m in enumerate(out, 1)], cut
+
+
+def fits(text: str, limit: int) -> bool:
+    """Whether a reply fits in the messages it may be split into, without being cut short."""
+    return not split(text, limit)[1]
+
+
 def _values(cmd: Command, responses: dict[str, Any]) -> dict[str, dict[str, str]]:
     """Each value read from its source's response (values of a source that failed are missing)."""
     first = cmd.source_names()[0]
@@ -1072,7 +1121,8 @@ def _values(cmd: Command, responses: dict[str, Any]) -> dict[str, dict[str, str]
 
 
 def compose(cmd: Command, data: Any) -> str:
-    """The reply for one response: the most important parts first, extras dropped to fit.
+    """The reply for one response: the most important parts first, extras dropped only when even
+    REPLY_MAX_MESSAGES messages can't carry it all (bot.py sends it split; see split).
     A command with several `sources` takes {source name: response} (failed sources left out)."""
     values = _values(cmd, data if cmd.sources else {cmd.source: data})
     r = cmd.reply
@@ -1087,24 +1137,24 @@ def compose(cmd: Command, data: Any) -> str:
     def text() -> str:
         return r.join.join(r.item_join.join(items) for items, _ in parts if items)
 
-    while len(text().encode()) > r.max_bytes:
+    while not fits(text(), r.max_bytes):
         droppable = [p for p in reversed(parts) if p[1] and p[0]]
         if not droppable:
             break
         droppable[0][0].pop()
-    return _fit(text(), r.max_bytes)
+    return text()
 
 
 def compose_group(cmd: Command, responses: list[Any]) -> str:
     """A group command's reply: `each` worded per response, in group order, joined; dropped from
-    the end to fit."""
+    the end when even REPLY_MAX_MESSAGES messages can't carry them all."""
     r = cmd.reply
     items = [t for data in responses if (t := _render(r.each or "", _values(cmd, {cmd.source: data})))]
     if not items:
         return r.empty
-    while len(items) > 1 and len(r.join.join(items).encode()) > r.max_bytes:
+    while len(items) > 1 and not fits(r.join.join(items), r.max_bytes):
         items.pop()
-    return _fit(r.join.join(items), r.max_bytes)
+    return r.join.join(items)
 
 
 def _group_text(template: str, groups: list[str], arg: str) -> str:
@@ -1126,7 +1176,8 @@ async def _gather(calls: list) -> tuple[list[Any], list[SourceError]]:
 async def run(
     recipe: Recipe, command: str, settings: dict[str, str], arg: str | None = None, *, use_cache: bool = True
 ) -> str:
-    """The reply to one command. SourceError if the source can't be read (the caller decides what
+    """The reply to one command, unsplit (split() turns it into messages of the command's
+    reply.max_bytes). SourceError if the source can't be read (the caller decides what
     goes over the air: the recipe's `unavailable` text, never the error's details).
 
     arg: the word after the command (see `argument`). Only a group command uses it, and only to
@@ -1141,9 +1192,9 @@ async def run(
             raise SourceError("The groups setting can't be read") from None
         r = cmd.reply
         if not arg:
-            return _fit(_group_text(r.no_group or DEFAULT_NO_GROUP, list(groups), ""), r.max_bytes)
+            return _group_text(r.no_group or DEFAULT_NO_GROUP, list(groups), "")
         if arg not in groups:
-            return _fit(_group_text(r.unknown_group or DEFAULT_UNKNOWN_GROUP, list(groups), arg), r.max_bytes)
+            return _group_text(r.unknown_group or DEFAULT_UNKNOWN_GROUP, list(groups), arg)
         assert cmd.source is not None
         responses, errors = await _gather(
             [fetch(recipe, cmd.source, settings, use_cache=use_cache, item=i) for i in groups[arg]]
