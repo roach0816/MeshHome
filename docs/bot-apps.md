@@ -131,6 +131,14 @@ FORMAT.md has full examples.
 - **`"format": "duration"`**: seconds as `45s`, `1m23s`, `1h23m`, `2d7h`.
 - **`"map": { "on": "open", "off": "closed" }`** (text values): shows a value differently, matched
   ignoring case. Mapping to `""` leaves the value out.
+- **`{ "setting": "location", "format": "text" }`** (MeshHome 1.0.17), instead of `from`: a `text`
+  setting as the owner typed it (up to 60 characters), such as a station's `City, ST`. A blank setting
+  leaves the value out. It goes over the air, so the setting's `help` should say so.
+
+### Replies
+
+- **`\[` and `\]`** (MeshHome 1.0.17; `"\\["` in JSON) are literal brackets, not an optional part:
+  `"\\[{location}\\]"` gives `[Springfield, IL]`, and is left out when there's no location.
 
 ### Paths
 
