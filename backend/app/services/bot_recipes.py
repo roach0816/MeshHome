@@ -36,7 +36,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # 2: push sources (a device sends its readings to MeshHome).
 # 3: groups and select settings, several sources per command, Basic auth and raw header values,
-#    self-signed local HTTPS, per-source size limits, a login, and more path selectors.
+#    self-signed local HTTPS, per-source size limits, a login, and more path selectors; since
+#    MeshHome 1.0.17, values read from a text setting and literal \[ \] in reply templates.
 SCHEMA = 3
 DM_MAX_BYTES = 150
 MAX_RESPONSE_BYTES = 512 * 1024  # a source's default; max_kb raises it
@@ -220,7 +221,10 @@ class Candidate(BaseModel):
 
 class Value(BaseModel):
     # Paths tried in order; the first that gives a usable value wins (its label is {name.label}).
-    from_: list[str | Candidate] = Field(alias="from", min_length=1, max_length=10)
+    from_: list[str | Candidate] = Field(default_factory=list, alias="from", max_length=10)
+    # Format 3, instead of `from`: a text setting, as the owner typed it (blank: the value is
+    # missing), e.g. a station's "City, ST". It goes over the air, so say so in the setting's help.
+    setting: str | None = None
     # number: "3.40mph" → 3.4 with unit "mph"; compass: degrees → "NE"; text: as sent (≤ 60 chars);
     # count (format 3): how many items the list at the path has (or match its last filter);
     # duration (format 3): seconds → "1h23m".
@@ -239,6 +243,13 @@ class Value(BaseModel):
     def _map_is_for_text(self) -> Value:
         if self.map and self.format != "text":
             raise ValueError("map works with format text")
+        if (self.setting is None) == (not self.from_):
+            raise ValueError("A value reads either from paths or from a setting")
+        if self.setting is not None:
+            if self.format != "text":
+                raise ValueError("A value from a setting has format text")
+            if self.unit_from or self.unit_map or self.source or self.map:
+                raise ValueError("A value from a setting can't have unit_from, unit_map, source or map")
         return self
 
     def candidates(self) -> list[Candidate]:
@@ -359,8 +370,11 @@ class Recipe(BaseModel):
             )
             if used:
                 return f"/{cmd.name}'s {sorted(used)[0]}"
+            r = cmd.reply
+            if any(e in t for t in [i for p in r.parts for i in p.items] + [r.each or ""] for e in _LITERAL):
+                return f"/{cmd.name}'s literal \\[ \\]"
             for key, v in cmd.values.items():
-                if v.source or v.map or v.format in ("count", "duration"):
+                if v.source or v.map or v.setting or v.format in ("count", "duration"):
                     return f"/{cmd.name}'s value {key}"
                 for path in v.paths():
                     if not _path_ok_v2(path) and _path_ok(path):
@@ -480,6 +494,10 @@ class Recipe(BaseModel):
             for key, v in cmd.values.items():
                 if v.source is not None and v.source not in cmd.source_names():
                     raise ValueError(f"/{cmd.name}'s value {key} reads a source the command doesn't")
+                if v.setting is not None and (
+                    v.setting not in settings or settings[v.setting].type != "text"
+                ):
+                    raise ValueError(f"/{cmd.name}'s value {key} must name a text setting")
                 for path in v.paths():
                     parse_path(path)
             r = cmd.reply
@@ -1025,9 +1043,25 @@ def extract(spec: Value, data: Any) -> dict[str, str] | None:
 # ---- the reply -----------------------------------------------------------------------------------
 
 
+# \[ and \] in a template are literal brackets (format 3), not an optional part. While a template
+# is filled they stand in as private-use characters, which no template or value can contain.
+_LITERAL = {"\\[": "", "\\]": ""}
+
+
 def _render(template: str, values: dict[str, dict[str, str]]) -> str | None:
     """Fill a template. Text in [ ] is kept only if all its values exist; None if a value outside
-    [ ] is missing (the item is then left out)."""
+    [ ] is missing (the item is then left out). \\[ and \\] are literal brackets."""
+    for escaped, held in _LITERAL.items():
+        template = template.replace(escaped, held)
+    out = _render_parts(template, {k: {f: _held_out(s) for f, s in v.items()} for k, v in values.items()})
+    return None if out is None else out.replace("", "[").replace("", "]")
+
+
+def _held_out(text: str) -> str:
+    return text.replace("", "").replace("", "")
+
+
+def _render_parts(template: str, values: dict[str, dict[str, str]]) -> str | None:
 
     def fill(t: str) -> str | None:
         missing = False
@@ -1109,22 +1143,30 @@ def fits(text: str, limit: int) -> bool:
     return not split(text, limit)[1]
 
 
-def _values(cmd: Command, responses: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """Each value read from its source's response (values of a source that failed are missing)."""
+def _values(
+    cmd: Command, responses: dict[str, Any], settings: dict[str, str] | None = None
+) -> dict[str, dict[str, str]]:
+    """Each value read from its source's response (values of a source that failed are missing),
+    or from its setting (missing when blank)."""
     first = cmd.source_names()[0]
     out = {}
     for k, spec in cmd.values.items():
+        if spec.setting is not None:
+            if text := (settings or {}).get(spec.setting, "").strip()[:60]:
+                out[k] = {"value": text, "unit": "", "label": ""}
+            continue
         src = spec.source or first
         if src in responses and (v := extract(spec, responses[src])) is not None:
             out[k] = v
     return out
 
 
-def compose(cmd: Command, data: Any) -> str:
+def compose(cmd: Command, data: Any, settings: dict[str, str] | None = None) -> str:
     """The reply for one response: the most important parts first, extras dropped only when even
     REPLY_MAX_MESSAGES messages can't carry it all (bot.py sends it split; see split).
-    A command with several `sources` takes {source name: response} (failed sources left out)."""
-    values = _values(cmd, data if cmd.sources else {cmd.source: data})
+    A command with several `sources` takes {source name: response} (failed sources left out).
+    settings: for values read from a setting."""
+    values = _values(cmd, data if cmd.sources else {cmd.source: data}, settings)
     r = cmd.reply
     parts: list[tuple[list[str], bool]] = []
     for part in r.parts:
@@ -1145,11 +1187,13 @@ def compose(cmd: Command, data: Any) -> str:
     return text()
 
 
-def compose_group(cmd: Command, responses: list[Any]) -> str:
+def compose_group(cmd: Command, responses: list[Any], settings: dict[str, str] | None = None) -> str:
     """A group command's reply: `each` worded per response, in group order, joined; dropped from
     the end when even REPLY_MAX_MESSAGES messages can't carry them all."""
     r = cmd.reply
-    items = [t for data in responses if (t := _render(r.each or "", _values(cmd, {cmd.source: data})))]
+    items = [
+        t for data in responses if (t := _render(r.each or "", _values(cmd, {cmd.source: data}, settings)))
+    ]
     if not items:
         return r.empty
     while len(items) > 1 and not fits(r.join.join(items), r.max_bytes):
@@ -1201,10 +1245,12 @@ async def run(
         )
         if len(errors) == len(responses):
             raise errors[0]
-        return compose_group(cmd, [d for d in responses if d is not None])
+        return compose_group(cmd, [d for d in responses if d is not None], settings)
     if cmd.source:
-        return compose(cmd, await fetch(recipe, cmd.source, settings, use_cache=use_cache))
+        return compose(cmd, await fetch(recipe, cmd.source, settings, use_cache=use_cache), settings)
     responses, errors = await _gather([fetch(recipe, n, settings, use_cache=use_cache) for n in cmd.sources])
     if len(errors) == len(responses):
         raise errors[0]
-    return compose(cmd, {n: d for n, d in zip(cmd.sources, responses, strict=True) if d is not None})
+    return compose(
+        cmd, {n: d for n, d in zip(cmd.sources, responses, strict=True) if d is not None}, settings
+    )

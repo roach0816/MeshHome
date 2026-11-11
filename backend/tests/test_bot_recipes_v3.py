@@ -1076,3 +1076,80 @@ def test_secrets_can_be_long_tokens():
         bot_recipes.check_settings(recipe, {**HA_SETTINGS, "host": "a" * 254})
     with pytest.raises(ValueError, match="control characters"):
         bot_recipes.check_settings(recipe, {**HA_SETTINGS, "token": jwt + "\r\nX: y"})
+
+
+# ---- values from a setting, and literal brackets ------------------------------------------------------
+
+WEATHER_AT = _recipe(
+    id="weather-at",
+    name="Weather with a location",
+    hosts=["api.example.com"],
+    settings=[
+        {"key": "location", "label": "Location to prepend", "required": False},
+        {"key": "token", "label": "Token", "type": "secret"},
+    ],
+    sources={"live": {"network": "internet", "url": "https://api.example.com/now?token={token}"}},
+    commands=[
+        {
+            "name": "weather",
+            "help": "local weather",
+            "source": "live",
+            "values": {
+                "location": {"setting": "location", "format": "text"},
+                "temp": {"from": ["temp"]},
+                "wind": {"from": ["wind"]},
+            },
+            "reply": {
+                "parts": [
+                    {"items": ["\\[{location}\\]", "🌡️{temp}°F"]},
+                    {"items": ["💨{wind} mph[ \\[gusty\\]]"]},
+                ]
+            },
+        }
+    ],
+)
+
+
+async def test_a_setting_value_prepends_the_location(monkeypatch):
+    _server(monkeypatch, lambda r: httpx.Response(200, json={"temp": 72, "wind": 5}), ip="93.184.216.34")
+    recipe = bot_recipes.load(WEATHER_AT)
+    reply = await bot_recipes.run(recipe, "weather", {"location": " Springfield, IL ", "token": "t"})
+    assert reply == "[Springfield, IL] 🌡️72°F · 💨5 mph [gusty]"
+    # Blank: the item is left out, brackets and all.
+    bot_recipes._cache.clear()
+    assert (
+        await bot_recipes.run(recipe, "weather", {"location": "", "token": "t"}) == "🌡️72°F · 💨5 mph [gusty]"
+    )
+
+
+def test_a_setting_value_is_text_from_a_text_setting():
+    cmd = bot_recipes.load(WEATHER_AT).commands[0]
+    assert bot_recipes.compose(cmd, {"temp": 1}, {"location": "x" * 80}) == f"[{'x' * 60}] 🌡️1°F"
+    assert bot_recipes.compose(cmd, {"temp": 1}) == "🌡️1°F"  # no settings given
+    raw = copy.deepcopy(WEATHER_AT)
+    raw["commands"][0]["values"]["location"] = {"setting": "token", "format": "text"}
+    with pytest.raises(bot_recipes.RecipeError, match="must name a text setting"):
+        bot_recipes.load(raw)
+
+
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [
+        ({"setting": "location"}, "has format text"),
+        ({"setting": "location", "format": "text", "from": ["x"]}, "either from paths or from a setting"),
+        ({"format": "text"}, "either from paths or from a setting"),
+        ({"setting": "location", "format": "text", "map": {"a": "b"}}, "can't have unit_from"),
+    ],
+)
+def test_invalid_setting_values_are_refused(value, reason):
+    with pytest.raises(ValueError, match=reason):
+        bot_recipes.Value.model_validate(value)
+
+
+def test_setting_values_and_literal_brackets_need_format_3():
+    raw = {**copy.deepcopy(WEATHER_AT), "schema": 1}
+    with pytest.raises(bot_recipes.RecipeError, match=r"literal \\\[ \\\] needs recipe format 3"):
+        bot_recipes.load(raw)
+    raw["commands"][0]["reply"]["parts"] = [{"items": ["{location} 🌡️{temp}°F"]}]
+    with pytest.raises(bot_recipes.RecipeError, match="value location needs recipe format 3"):
+        bot_recipes.load(raw)
