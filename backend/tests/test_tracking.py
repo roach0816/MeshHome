@@ -203,8 +203,13 @@ async def test_tracking_flow(client, sim_tracker):
         return d if d["status"] == "ok" and d["last_position"] else None
 
     d = await wait_for(located, timeout=30)
-    assert d["battery_v"] == 3.94 and d["last_position"]["source"] == "telemetry"
-    assert d["last_position"]["alt_m"] == 512.0 and len(d["trail"]) >= 1
+    assert 3.6 < d["battery_v"] <= 4.33 and d["last_position"]["source"] == "telemetry"
+    assert 80 <= d["battery_pct"] <= 100 and d["battery_low"] is False  # a high-voltage cell
+    assert 490 < d["last_position"]["alt_m"] < 535 and len(d["trail"]) >= 1
+    # Its sensors, and how the reply came: by flood (no route yet), through the sim's repeaters.
+    assert 26 < d["sensors"]["temp_c"] < 29 and 880 < d["sensors"]["pressure_hpa"] < 960
+    assert d["link"]["route"] == "flood" and d["link"]["hops"] and d["link"]["snr"] is not None
+    assert all(h["name"] for h in d["link"]["hops"])
     assert d["current_radio"] is True and 0 < d["next_poll_in"] <= 60
     lat, lon = d["last_position"]["lat"], d["last_position"]["lon"]
     assert 40.02 < lat < 40.035 and -105.26 < lon < -105.24  # on the built-in loop
@@ -279,7 +284,9 @@ async def test_stale_route_floods_and_no_answer_backs_off(client, sim_tracker):
     await wait_for(located, timeout=25)
     # Unanswered on the route, so the route was forgotten and the flood got through.
     assert sim_tracker["tracker_requests"] == 2
-    assert simulated.SIM_TRACKER_KEY not in sim_tracker["contact_paths"]
+    # The flood's reply taught the radio a new route in place of the stale one.
+    assert sim_tracker["contact_paths"][simulated.SIM_TRACKER_KEY] != (1, "aa")
+    assert (await _device(client, dev["id"]))["link"]["route"] == "flood"
 
     # Out of range: unanswered polls count up, and with back-off it's asked less often.
     sim_tracker["tracker_dropout"] = 1.0

@@ -740,10 +740,13 @@ export interface SensorHistory {
 
 // ---- tracking and the offline map ------------------------------------------------------
 
+export type Units = "metric" | "imperial";
+
 export interface TrackingConfig {
   enabled: boolean;
   back_off: boolean;
   trail_minutes: number;
+  units: Units;
 }
 
 export interface TrackPoint {
@@ -772,12 +775,55 @@ export interface TrackedDevice {
   last_poll_at: string | null;
   last_reply_at: string | null;
   battery_v: number | null;
+  battery_pct: number | null;
+  battery_low: boolean;
+  course_id: string | null;
+  progress: CourseProgress | null;
+  pace: TrackPace | null;
+  link: ReplyLink | null;
+  sensors: TrackSensors | null;
   current_radio: boolean;
   is_simulated: boolean;
   next_poll_in: number | null;
   asking: boolean;
   last_position: TrackPoint | null;
   trail: TrackPoint[];
+}
+
+export interface CourseProgress {
+  course_id: string;
+  course_name: string;
+  color: string;
+  auto: boolean;
+  total_m: number;
+  along_m: number | null;
+  pct: number | null;
+  off_course_m: number | null;
+  finished: boolean;
+  at: string;
+}
+
+export interface TrackPace {
+  speed_mps: number;
+  basis: "course" | "straight";
+  moving: boolean;
+  remaining_m: number | null;
+  eta_at: string | null;
+}
+
+export interface ReplyLink {
+  at: string;
+  route: "direct" | "flood";
+  hops: { hash: string; name: string | null }[];
+  snr: number | null;
+  rssi: number | null;
+}
+
+export interface TrackSensors {
+  at: string;
+  temp_c: number | null;
+  pressure_hpa: number | null;
+  baro_alt_m: number | null;
 }
 
 export interface Bounds {

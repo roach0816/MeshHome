@@ -4,6 +4,8 @@ import { Link } from "react-router";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
+  BatteryFull,
+  BatteryLow,
   BatteryMedium,
   ChevronLeft,
   Download,
@@ -18,8 +20,9 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api, type ContactPage, type Course, type TrackedDevice, type TrackingData } from "../lib/api";
+import { api, type ContactPage, type Course, type TrackedDevice, type TrackingData, type Units } from "../lib/api";
 import { baseLayer, baseLayerKey, usesOffline } from "../lib/tiles";
+import { longText, paceText, unitsFor } from "../lib/units";
 import { cx, formatDateTime } from "../lib/util";
 import { Badge, Button, ErrorText, Field, IconButton, Input } from "../components/ui";
 import { Select } from "../components/SettingsKit";
@@ -47,9 +50,10 @@ export function ago(iso: string | null | undefined, now: number): string {
   return `${Math.round(s / 86400)} days ago`;
 }
 
-function distance(m: number): string {
-  const mi = m / 1609.344;
-  return `${mi.toFixed(mi < 10 ? 1 : 0)} mi · ${(m / 1000).toFixed(1)} km`;
+type U = ReturnType<typeof unitsFor>;
+
+function distance(u: U, m: number): string {
+  return longText(u, m);
 }
 
 function intervalLabel(s: number): string {
@@ -57,6 +61,77 @@ function intervalLabel(s: number): string {
 }
 
 const displayName = (d: TrackedDevice) => d.label || d.name;
+
+
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** "Red Loop · 3.2 of 6.5 mi · 49%", or why there's no progress. Null: no course. */
+function progressText(u: U, d: TrackedDevice): { text: string; tone: "ok" | "warn" | "muted" } | null {
+  const p = d.progress;
+  if (!p) return null;
+  if (p.finished) return { text: `${p.course_name} · finished`, tone: "ok" };
+  if (p.along_m === null) {
+    const off = p.off_course_m !== null ? ` (${Math.round(u.dist(p.off_course_m))} ${u.distUnit} away)` : "";
+    return { text: `Off ${p.course_name}${off}`, tone: "warn" };
+  }
+  return {
+    text: `${p.course_name} · ${longText(u, p.along_m, false)} of ${longText(u, p.total_m)} · ${Math.round(p.pct ?? 0)}%`,
+    tone: "muted",
+  };
+}
+
+/** "9:45 /mi · ETA 3:42 PM (24 min)", "Stopped", or null (too few positions yet). */
+function paceLine(u: U, d: TrackedDevice, now: number): string | null {
+  const p = d.pace;
+  if (!p) return null;
+  if (!p.moving) return "Not moving";
+  let out = paceText(u, p.speed_mps);
+  if (p.basis === "straight") out += " (straight line)";
+  if (p.eta_at) {
+    const min = Math.round((Date.parse(p.eta_at) - now) / 60000);
+    out += ` · ETA ${clock(p.eta_at)}${min > 0 ? ` (${min} min)` : min < -1 ? " (overdue)" : " (now)"}`;
+  }
+  return out;
+}
+
+function batteryText(d: TrackedDevice): string | null {
+  if (d.battery_pct !== null) return `${d.battery_pct}%`;
+  return d.battery_v !== null ? `${d.battery_v.toFixed(2)} V` : null;
+}
+
+function BatteryIcon({ d }: { d: TrackedDevice }) {
+  const Icon = d.battery_low ? BatteryLow : (d.battery_pct ?? 0) >= 80 ? BatteryFull : BatteryMedium;
+  return <Icon className="size-3.5" aria-hidden />;
+}
+
+/** "via Hilltop · SNR 6 dB": how its latest answer reached this radio. */
+function linkText(d: TrackedDevice): string | null {
+  const l = d.link;
+  if (!l) return null;
+  const near = l.hops.length ? l.hops[l.hops.length - 1] : null;
+  const via = near ? `via ${near.name ?? near.hash.toUpperCase()}${l.hops.length > 1 ? ` (+${l.hops.length - 1})` : ""}` : "heard directly";
+  return `${via}${l.snr !== null ? ` · SNR ${l.snr.toFixed(l.snr % 1 ? 1 : 0)} dB` : ""}`;
+}
+
+function routeText(d: TrackedDevice): string | null {
+  const l = d.link;
+  if (!l) return null;
+  const names = l.hops.map((h) => h.name ?? h.hash.toUpperCase());
+  const route = [displayName(d), ...names, "this radio"].join(" → ");
+  return `${route} (${l.route === "flood" ? "by flood" : "on its route"}${l.rssi !== null ? `, RSSI ${Math.round(l.rssi)} dBm` : ""})`;
+}
+
+function sensorText(u: U, d: TrackedDevice): string | null {
+  const s = d.sensors;
+  if (!s) return null;
+  const parts: string[] = [];
+  if (s.temp_c !== null) parts.push(`${u.temp(s.temp_c).toFixed(u.imperial ? 0 : 1)}${u.tempUnit} inside the tracker`);
+  if (s.baro_alt_m !== null) parts.push(`${Math.round(u.alt(s.baro_alt_m))} ${u.altUnit} by barometer`);
+  if (s.pressure_hpa !== null) parts.push(`${u.pressure(s.pressure_hpa).toFixed(u.pressureDigits)} ${u.pressureUnit}`);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 /** Older than three intervals (and at least 5 minutes): shown faded. */
 function isStale(d: TrackedDevice, now: number): boolean {
@@ -120,6 +195,8 @@ export function Tracking() {
   const fitted = useRef(false);
 
   const d = data.data;
+  const units: Units = d?.config.units ?? "metric";
+  const u = useMemo(() => unitsFor(units), [units]);
   const devices = d?.devices ?? [];
   const shown = useMemo(() => devices.filter((x) => x.show), [devices]);
   const visibleCourses = useMemo(() => (courses.data ?? []).filter((c) => c.visible), [courses.data]);
@@ -160,7 +237,7 @@ export function Tracking() {
         L.polyline(seg, { color: "#ffffff", weight: 8, opacity: 0.55, interactive: false }).addTo(g);
         const line = L.polyline(seg, { color: c.color, weight: 4, opacity: 0.9 });
         const tip = document.createElement("span");
-        tip.textContent = `${c.name} · ${distance(c.distance_m)}`;
+        tip.textContent = `${c.name} · ${distance(u, c.distance_m)}`;
         line.bindTooltip(tip, { sticky: true }).addTo(g);
       }
       for (const w of c.waypoints) {
@@ -173,7 +250,7 @@ export function Tracking() {
         mk.addTo(g);
       }
     }
-  }, [visibleCourses]);
+  }, [visibleCourses, u]);
 
   // Trails and current positions.
   useEffect(() => {
@@ -227,8 +304,17 @@ export function Tracking() {
       line(displayName(dev), "font-semibold");
       if (dev.label) line(dev.name);
       line(`${formatDateTime(last.at)} (${last.source === "advert" ? "advert" : "asked"})`);
-      line(`${last.lat.toFixed(5)}, ${last.lon.toFixed(5)}${last.alt_m !== null ? ` · ${Math.round(last.alt_m * 3.28084)} ft` : ""}`);
-      if (dev.battery_v !== null) line(`Battery ${dev.battery_v.toFixed(2)} V`);
+      line(`${last.lat.toFixed(5)}, ${last.lon.toFixed(5)}${last.alt_m !== null ? ` · ${Math.round(u.alt(last.alt_m))} ${u.altUnit}` : ""}`);
+      const prog = progressText(u, dev);
+      if (prog) line(prog.text);
+      const pl = paceLine(u, dev, now);
+      if (pl) line(pl);
+      if (dev.battery_v !== null)
+        line(`Battery ${dev.battery_pct !== null ? `about ${dev.battery_pct}% (${dev.battery_v.toFixed(2)} V)` : `${dev.battery_v.toFixed(2)} V`}`);
+      const rt = routeText(dev);
+      if (rt) line(rt);
+      const sn = sensorText(u, dev);
+      if (sn) line(sn);
       mk.bindPopup(pop).addTo(markers);
     }
   }, [d, shown, now]);
@@ -299,6 +385,7 @@ export function Tracking() {
           <TrackerList
             devices={devices}
             now={now}
+            u={u}
             onFocus={focus}
             onEdit={setEditing}
             onToggle={(dev) => save.mutate({ id: dev.id, body: { show: !dev.show } })}
@@ -308,7 +395,7 @@ export function Tracking() {
             error={save.error ?? poll.error}
           />
         ) : (
-          <CourseList courses={courses.data ?? []} error={courses.error} />
+          <CourseList courses={courses.data ?? []} error={courses.error} u={u} />
         )}
       </div>
     </div>
@@ -376,6 +463,9 @@ export function Tracking() {
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] flex flex-wrap justify-center gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               {shown.map((dev) => {
                 const st = statusLine(dev, now);
+                const prog = progressText(u, dev);
+                const pl = paceLine(u, dev, now);
+                const bat = batteryText(dev);
                 return (
                   <button
                     key={dev.id}
@@ -387,11 +477,16 @@ export function Tracking() {
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold">{displayName(dev)}</span>
                       <span className={cx("block truncate text-xs", TONE_CLASS[st.tone])}>{st.text}</span>
+                      {prog && <span className={cx("block truncate text-xs", TONE_CLASS[prog.tone])}>{prog.text}</span>}
+                      {pl && <span className="block truncate text-xs text-muted">{pl}</span>}
                     </span>
-                    {dev.battery_v !== null && (
-                      <span className="ml-1 flex shrink-0 items-center gap-0.5 text-xs text-muted" title="Battery">
-                        <BatteryMedium className="size-3.5" aria-hidden />
-                        {dev.battery_v.toFixed(2)} V
+                    {bat && (
+                      <span
+                        className={cx("ml-1 flex shrink-0 items-center gap-0.5 self-start pt-0.5 text-xs", dev.battery_low ? "font-semibold text-danger" : "text-muted")}
+                        title={dev.battery_v !== null ? `Battery ${dev.battery_v.toFixed(2)} V` : "Battery"}
+                      >
+                        <BatteryIcon d={dev} />
+                        {bat}
                       </span>
                     )}
                   </button>
@@ -430,6 +525,7 @@ export function Tracking() {
         <EditTrackerDialog
           device={devices.find((x) => x.id === editing.id) ?? editing}
           intervals={d.intervals}
+          courses={courses.data ?? []}
           onClose={() => setEditing(null)}
         />
       )}
@@ -442,6 +538,7 @@ export function Tracking() {
 function TrackerList({
   devices,
   now,
+  u,
   onFocus,
   onEdit,
   onToggle,
@@ -452,6 +549,7 @@ function TrackerList({
 }: {
   devices: TrackedDevice[];
   now: number;
+  u: U;
   onFocus: (d: TrackedDevice) => void;
   onEdit: (d: TrackedDevice) => void;
   onToggle: (d: TrackedDevice) => void;
@@ -482,9 +580,19 @@ function TrackerList({
                     <span className="block truncate text-sm font-semibold">{displayName(dev)}</span>
                     {dev.label && <span className="block truncate text-xs text-muted">{dev.name}</span>}
                     <span className={cx("block text-xs", TONE_CLASS[st.tone])}>{st.text}</span>
+                    {progressText(u, dev) && (
+                      <span className={cx("block text-xs", TONE_CLASS[progressText(u, dev)!.tone])}>{progressText(u, dev)!.text}</span>
+                    )}
+                    {paceLine(u, dev, now) && <span className="block text-xs text-muted">{paceLine(u, dev, now)}</span>}
+                    {linkText(dev) && <span className="block text-xs text-muted" title={routeText(dev) ?? undefined}>{linkText(dev)}</span>}
+                    {sensorText(u, dev) && <span className="block text-xs text-muted">{sensorText(u, dev)}</span>}
                     <span className="block text-xs text-muted">
                       Every {intervalLabel(dev.interval_s)}
-                      {dev.battery_v !== null && ` · battery ${dev.battery_v.toFixed(2)} V`}
+                      {batteryText(dev) && (
+                        <span className={cx(dev.battery_low && "font-semibold text-danger")}>
+                          {` · battery ${batteryText(dev)}${dev.battery_pct !== null && dev.battery_v !== null ? ` (${dev.battery_v.toFixed(2)} V)` : ""}`}
+                        </span>
+                      )}
                       {dev.is_simulated && " · simulated"}
                     </span>
                   </span>
@@ -590,19 +698,30 @@ function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () =
   );
 }
 
-function EditTrackerDialog({ device, intervals, onClose }: { device: TrackedDevice; intervals: number[]; onClose: () => void }) {
+function EditTrackerDialog({
+  device,
+  intervals,
+  courses,
+  onClose,
+}: {
+  device: TrackedDevice;
+  intervals: number[];
+  courses: Course[];
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [label, setLabel] = useState(device.label ?? "");
   const [color, setColor] = useState(device.color);
   const [interval, setIntervalS] = useState(device.interval_s);
   const [polling, setPolling] = useState(device.polling);
+  const [courseId, setCourseId] = useState(device.course_id ?? "");
   const [confirm, setConfirm] = useState<"clear" | "remove" | null>(null);
   const done = () => qc.invalidateQueries({ queryKey: ["tracking"] });
   const save = useMutation({
     mutationFn: () =>
       api(`/api/tracking/devices/${device.id}`, {
         method: "PATCH",
-        json: { label: label.trim() || null, color, interval_s: interval, polling },
+        json: { label: label.trim() || null, color, interval_s: interval, polling, course_id: courseId || null },
       }),
     onSuccess: () => {
       done();
@@ -651,6 +770,18 @@ function EditTrackerDialog({ device, intervals, onClose }: { device: TrackedDevi
             />
           </Field>
         </div>
+        <Field
+          label="Course"
+          htmlFor="edit-course"
+          hint="For progress and ETA. At a handoff, choose the loop the next runner is on. Automatic picks the course its position is on, which can be wrong where loops share trail."
+        >
+          <Select
+            id="edit-course"
+            value={courseId}
+            options={[{ value: "", label: "Automatic" }, ...courses.map((c) => ({ value: c.id, label: c.name }))]}
+            onChange={setCourseId}
+          />
+        </Field>
         <Field label="Ask for its position every" htmlFor="edit-interval">
           <Select id="edit-interval" value={interval} options={intervals.map((s) => ({ value: s, label: intervalLabel(s) }))} onChange={setIntervalS} />
         </Field>
@@ -695,7 +826,7 @@ function EditTrackerDialog({ device, intervals, onClose }: { device: TrackedDevi
 
 // ---- courses ---------------------------------------------------------------------------------
 
-function CourseList({ courses, error }: { courses: Course[]; error: unknown }) {
+function CourseList({ courses, error, u }: { courses: Course[]; error: unknown; u: U }) {
   const qc = useQueryClient();
   const file = useRef<HTMLInputElement>(null);
   const [renaming, setRenaming] = useState<Course | null>(null);
@@ -742,7 +873,7 @@ function CourseList({ courses, error }: { courses: Course[]; error: unknown }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{c.name}</span>
               <span className="block truncate text-xs text-muted">
-                {distance(c.distance_m)}
+                {distance(u, c.distance_m)}
                 {c.waypoints.length > 0 && ` · ${c.waypoints.length} point${c.waypoints.length === 1 ? "" : "s"}`}
               </span>
             </span>
@@ -791,6 +922,7 @@ function CourseList({ courses, error }: { courses: Course[]; error: unknown }) {
       {renaming && (
         <RenameCourseDialog
           course={renaming}
+          u={u}
           onClose={() => setRenaming(null)}
           onSave={(name) => patch.mutate({ id: renaming.id, body: { name } }, { onSuccess: () => setRenaming(null) })}
           saving={patch.isPending}
@@ -802,11 +934,13 @@ function CourseList({ courses, error }: { courses: Course[]; error: unknown }) {
 
 function RenameCourseDialog({
   course,
+  u,
   onClose,
   onSave,
   saving,
 }: {
   course: Course;
+  u: U;
   onClose: () => void;
   onSave: (name: string) => void;
   saving: boolean;
@@ -830,7 +964,7 @@ function RenameCourseDialog({
         <Input id="course-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
       </Field>
       <p className="mt-2">
-        <Badge>{distance(course.distance_m)}</Badge>
+        <Badge>{distance(u, course.distance_m)}</Badge>
       </p>
     </Dialog>
   );

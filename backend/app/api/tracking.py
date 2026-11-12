@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape, quoteattr
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_auth, require_session
@@ -17,7 +17,7 @@ from app.db import get_db
 from app.models import AuditEvent, Contact, Course, Radio, TrackedDevice, TrackPosition, utcnow
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import app_settings, courses, offline_map, tracking
+from app.services import app_settings, courses, offline_map, progress, tracking
 
 router = APIRouter(prefix="/api", tags=["tracking"])
 
@@ -31,6 +31,53 @@ class TrackPoint(BaseModel):
     lon: float
     alt_m: float | None = None
     source: str  # "telemetry" (it answered a request) | "advert"
+
+
+class CourseProgress(BaseModel):
+    course_id: uuid.UUID
+    course_name: str
+    color: str
+    # True: the tracker has no course chosen, and this is the one its position is on.
+    auto: bool
+    total_m: float
+    # Distance covered along the course, and as a percentage; None while off course.
+    along_m: float | None
+    pct: float | None
+    # Off course: how far from the course line (None: farther than the course search reaches).
+    off_course_m: float | None
+    finished: bool
+    at: datetime  # of the position this is for
+
+
+class Pace(BaseModel):
+    speed_mps: float
+    # "course": distance along the course; "straight": between fixes (reads slower on trail).
+    basis: str
+    moving: bool
+    # To the end of the course, at this pace from the last position (course basis only).
+    remaining_m: float | None
+    eta_at: datetime | None
+
+
+class Hop(BaseModel):
+    hash: str
+    name: str | None  # the repeater it most likely is (a contact with that key prefix)
+
+
+class ReplyLink(BaseModel):
+    at: datetime
+    route: str  # "direct" (its stored route) | "flood"
+    hops: list[Hop]  # repeaters, the tracker's end first; empty: heard directly
+    # Signal of the last hop, as this radio heard it.
+    snr: float | None
+    rssi: float | None
+
+
+class Sensors(BaseModel):
+    at: datetime
+    temp_c: float | None
+    pressure_hpa: float | None
+    baro_alt_m: float | None
 
 
 class TrackedDeviceOut(BaseModel):
@@ -51,6 +98,17 @@ class TrackedDeviceOut(BaseModel):
     last_poll_at: datetime | None
     last_reply_at: datetime | None
     battery_v: float | None
+    # About how full its battery is, from the voltage; low: at or under 20 %.
+    battery_pct: int | None = None
+    battery_low: bool = False
+    # The course chosen for it (None: the one its position is on).
+    course_id: uuid.UUID | None = None
+    progress: CourseProgress | None = None
+    pace: Pace | None = None
+    # How its latest answer reached this radio (when the radio logged the packet).
+    link: ReplyLink | None = None
+    # Its latest environment readings (when it shares them).
+    sensors: Sensors | None = None
     # On the radio that's connected now (its other radios' contacts aren't asked).
     current_radio: bool
     is_simulated: bool
@@ -87,9 +145,113 @@ def _require_enabled(cfg: app_settings.TrackingConfig) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Tracking is off. Turn it on in Settings → Tracking.")
 
 
+PROGRESS_WINDOW = timedelta(minutes=30)
+
+
+class _Context:
+    """What every tracker's output needs: courses, and names for repeater hash prefixes."""
+
+    def __init__(self, course_rows: list[Course], contacts: list[tuple[str, str | None, int]]):
+        self.courses = {c.id: c for c in course_rows}
+        self.contacts = contacts
+
+    def hop_name(self, h: str) -> str | None:
+        found = [(name, kind) for key, name, kind in self.contacts if key.startswith(h.lower())]
+        repeaters = [n for n, k in found if k == 2]
+        if len(repeaters) == 1:
+            return repeaters[0]
+        return found[0][0] if len(found) == 1 else None
+
+
+async def _context(db: AsyncSession) -> _Context:
+    course_rows = list((await db.execute(select(Course).order_by(Course.created_at))).scalars().all())
+    contacts: list[tuple[str, str | None, int]] = []
+    radio = supervisor.radio
+    if radio is not None:
+        contacts = [
+            (k.lower(), alias or name, kind)
+            for k, name, alias, kind in (
+                await db.execute(
+                    select(Contact.public_key, Contact.name, Contact.alias, Contact.kind).where(
+                        Contact.radio_id == radio.id
+                    )
+                )
+            ).all()
+        ]
+    return _Context(course_rows, contacts)
+
+
+def _progress(
+    ctx: _Context, d: TrackedDevice, recent: list[TrackPosition]
+) -> tuple[CourseProgress | None, Pace | None]:
+    points = [(p.at, p.lat, p.lon) for p in recent]
+    if not points:
+        return None, None
+    course = ctx.courses.get(d.course_id) if d.course_id else None
+    auto = course is None
+    if auto:
+        visible = [(c, progress.geometry(c)) for c in ctx.courses.values() if c.visible]
+        picked = progress.pick_course(visible, points)
+        course = picked[0] if picked else None
+    if course is None:
+        speed = progress.straight_pace(points)
+        p = (
+            None
+            if speed is None
+            else Pace(
+                speed_mps=round(speed, 2),
+                basis="straight",
+                moving=speed >= progress.MOVING_MPS,
+                remaining_m=None,
+                eta_at=None,
+            )
+        )
+        return None, p
+    g = progress.geometry(course)
+    steps = progress.series(g, points)
+    last = steps[-1]
+    total = g.total_m
+    along = last.along
+    finished = along is not None and total - along <= progress.FINISH_M and along > total / 2
+    out = CourseProgress(
+        course_id=course.id,
+        course_name=course.name,
+        color=course.color,
+        auto=auto,
+        total_m=round(total, 1),
+        along_m=None if along is None else round(along, 1),
+        pct=None if along is None or total <= 0 else round(min(100.0, 100 * along / total), 1),
+        off_course_m=None if along is not None or last.off == float("inf") else round(last.off),
+        finished=finished,
+        at=last.at,
+    )
+    speed = progress.pace(steps)
+    basis = "course"
+    if speed is None:
+        return out, None
+    moving = speed >= progress.MOVING_MPS
+    remaining = None if along is None else max(0.0, total - along)
+    eta = None
+    if moving and remaining is not None and not finished:
+        eta = last.at + timedelta(seconds=remaining / speed)
+    return out, Pace(
+        speed_mps=round(speed, 2),
+        basis=basis,
+        moving=moving,
+        remaining_m=None if remaining is None else round(remaining, 1),
+        eta_at=eta,
+    )
+
+
 async def _device_out(
-    db: AsyncSession, d: TrackedDevice, c: Contact, sim: bool, trail_minutes: int
+    db: AsyncSession,
+    d: TrackedDevice,
+    c: Contact,
+    sim: bool,
+    trail_minutes: int,
+    ctx: _Context | None = None,
 ) -> TrackedDeviceOut:
+    ctx = ctx or await _context(db)
     last = (
         await db.execute(
             select(TrackPosition)
@@ -113,6 +275,47 @@ async def _device_out(
             .scalars()
             .all()
         )
+    recent: list[TrackPosition] = []
+    link_row = sensor_row = None
+    if last is not None:
+        since = last.at - PROGRESS_WINDOW
+        recent = list(
+            (
+                await db.execute(
+                    select(TrackPosition)
+                    .where(TrackPosition.device_id == d.id, TrackPosition.at >= since)
+                    .order_by(TrackPosition.at)
+                    .limit(500)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        link_row = (
+            await db.execute(
+                select(TrackPosition)
+                .where(TrackPosition.device_id == d.id, TrackPosition.route.is_not(None))
+                .order_by(TrackPosition.at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        sensor_row = (
+            await db.execute(
+                select(TrackPosition)
+                .where(
+                    TrackPosition.device_id == d.id,
+                    or_(
+                        TrackPosition.temp_c.is_not(None),
+                        TrackPosition.pressure_hpa.is_not(None),
+                        TrackPosition.baro_alt_m.is_not(None),
+                    ),
+                )
+                .order_by(TrackPosition.at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    prog, pace = _progress(ctx, d, recent)
+    pct = tracking.battery_percent(d.battery_v, d.battery_max_v)
     radio = supervisor.radio
     return TrackedDeviceOut(
         id=d.id,
@@ -130,6 +333,28 @@ async def _device_out(
         last_poll_at=d.last_poll_at,
         last_reply_at=d.last_reply_at,
         battery_v=d.battery_v,
+        battery_pct=pct,
+        battery_low=pct is not None and pct <= tracking.LOW_BATTERY_PCT,
+        course_id=d.course_id,
+        progress=prog,
+        pace=pace,
+        link=None
+        if link_row is None
+        else ReplyLink(
+            at=link_row.at,
+            route=link_row.route or "direct",
+            hops=[Hop(hash=h, name=ctx.hop_name(h)) for h in (link_row.hops or []) if isinstance(h, str)],
+            snr=link_row.snr,
+            rssi=link_row.rssi,
+        ),
+        sensors=None
+        if sensor_row is None
+        else Sensors(
+            at=sensor_row.at,
+            temp_c=sensor_row.temp_c,
+            pressure_hpa=sensor_row.pressure_hpa,
+            baro_alt_m=sensor_row.baro_alt_m,
+        ),
         current_radio=radio is not None and c.radio_id == radio.id,
         is_simulated=sim,
         next_poll_in=tracking.manager.next_poll_in(d.id) if d.polling else None,
@@ -165,7 +390,8 @@ async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSessio
             .order_by(TrackedDevice.created_at)
         )
     ).all()
-    devices = [await _device_out(db, d, c, sim, cfg.trail_minutes) for d, c, sim in rows]
+    ctx_ = await _context(db)
+    devices = [await _device_out(db, d, c, sim, cfg.trail_minutes, ctx_) for d, c, sim in rows]
     base = None
     radio = supervisor.radio
     if radio is not None:
@@ -221,6 +447,8 @@ class DevicePatch(BaseModel):
     interval_s: Interval | None = None
     polling: bool | None = None
     show: bool | None = None
+    # The course it's on, for progress and ETA; null: the one its position is on.
+    course_id: uuid.UUID | None = None
 
 
 def _check_interval(v: int | None) -> None:
@@ -298,6 +526,10 @@ async def update_device(
             tracking.manager.forget(d.id)
     if body.show is not None:
         d.show = body.show
+    if "course_id" in fields:
+        if body.course_id is not None and await db.get(Course, body.course_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Course not found")
+        d.course_id = body.course_id
     await db.commit()
     hub.publish("tracking-updated")
     cfg = await app_settings.get_tracking_config(db)

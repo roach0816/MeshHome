@@ -242,6 +242,28 @@ navigation.
 - **Courses:** upload GPX files (tracks, routes and waypoints) to draw them. A colour in the name
   ("Green loop") colours the line. The simulated radio's tracker runs the first visible course, so
   you can rehearse at home.
+- **Progress, pace and ETA:** each position is placed on the tracker's course ("Red Loop · 3.2 of
+  6.5 mi · 49%"). A tracker's course can be chosen in its **Edit** dialog (do it at each handoff,
+  along with the label); *Automatic* uses the visible course its position is on, which can be wrong
+  where loops share trail. On a loop's shared start and finish, and on out-and-back sections, the
+  match that follows on from the previous position wins. More than about 120 m (400 ft) from the
+  line counts as off course. Pace is the distance covered along the course over the last ten
+  minutes (with no course, the straight-line distance between fixes, which reads slower on twisty
+  trail), and the ETA assumes that pace for the rest of the course.
+- **Units:** metric (km, m, °C, hPa) or imperial (mi, ft, °F, inHg) in **Settings → Tracking**, for
+  course distances, pace (per km or mile), altitude, temperature and pressure.
+- **Battery:** shown as an approximate percentage worked out from the voltage, in red at 20 % or
+  less. A tracker that has ever reported over 4.25 V is taken to have a high-voltage cell (full at
+  about 4.35 V, like the SenseCAP MeshTracker X1's), which reads lower for the same voltage.
+- **How its answer arrived:** from the radio's log of the packets it hears: the repeaters the
+  answer passed ("via Car Repeater"), named after contacts whose key starts the same, or "heard
+  directly", with the signal (SNR, RSSI) of the last hop. A flood answer lists the repeaters it
+  passed; one on the stored route doesn't, so the stored route is shown. Useful for finding where
+  coverage drops along the course.
+- **Sensors:** when the tracker shares its environment readings (MeshCore app → **Telemetry →
+  Environment**), its temperature, barometric pressure and the altitude worked out from it are shown
+  too. A tracker's barometer temperature is mostly the heat of whoever carries it. Trackers whose
+  firmware doesn't report a barometer simply don't show these.
 - **Setting up a tracker:** in the MeshCore app on the tracker, turn GPS on and set **Telemetry →
   Location** to allow this node (flag it in the tracker's contacts) or everyone. The tracker also
   needs your node in its contacts, to read the request. The tracker's status says when it answered

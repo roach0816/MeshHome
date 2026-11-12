@@ -621,6 +621,18 @@ class RadioSupervisor:
             self._repeater_works()
         return result
 
+    def reply_heard(self, public_key: str, since: float) -> dict[str, Any] | None:
+        """How the first reply packet from that node since `since` (time.monotonic) reached the
+        radio: {"hops", "hash_size", "route", "snr", "rssi"}, from the radio's packet log."""
+        own = self._radio.public_key if self._radio else ""
+        try:
+            sender = int(public_key[:2], 16)
+        except ValueError:
+            return None
+        return self._paths.claim_reply(
+            sender_hash=sender, self_hash=int(own[:2], 16) if own else None, since=since
+        )
+
     async def forget_route(self, public_key: str) -> bool:
         """Forget the radio's stored route to a contact, so the next request to it floods and the
         reply teaches the radio a fresh route (tracking: a runner who moved out of that route)."""

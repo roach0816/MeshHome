@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.19**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.20**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -592,7 +592,8 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 
 Positions of chosen contacts, such as GPS trackers, which MeshHome asks for on a schedule (see
 [features](features.md#tracking)). Tracking is off until it's turned on in the web interface
-(`GET /api/settings/tracking`: `{"enabled", "back_off", "trail_minutes"}`); while it's off, adding
+(`GET /api/settings/tracking`: `{"enabled", "back_off", "trail_minutes", "units"}`, with `units`
+`metric` or `imperial` for the tracking page; values in the API are always metric); while it's off, adding
 a device or asking one returns `409`.
 
 #### `GET /api/tracking` — read
@@ -610,6 +611,17 @@ within `trail_minutes`, oldest first). A position is `{"at", "lat", "lon", "alt_
 `status` is `new` (not asked yet), `ok`, `no_position` (it answered without a position: no GPS fix,
 or it doesn't share its location with this node), `no_answer` or `error`.
 
+Also on each device (1.0.20):
+
+| Field | Meaning |
+|---|---|
+| `battery_pct`, `battery_low` | About how full its battery is, from `battery_v` (a tracker that has reported over 4.25 V is taken to have a high-voltage cell); low at 20 % or less. `null` without a voltage. |
+| `course_id` | The course chosen for it, or `null` (the visible course its position is on). |
+| `progress` | `{"course_id", "course_name", "color", "auto", "total_m", "along_m", "pct", "off_course_m", "finished", "at"}`, or `null` (no course). `along_m` and `pct` are `null` while it's off course; `off_course_m` is then how far from the line (`null`: over about 120 m). `auto`: the course was picked from its position. |
+| `pace` | `{"speed_mps", "basis", "moving", "remaining_m", "eta_at"}` over the last ten minutes, or `null` (too few positions). `basis` is `course` (along the course) or `straight` (between fixes, with no course). `eta_at` is to the end of the course. |
+| `link` | How its latest answer reached the radio: `{"at", "route", "hops": [{"hash", "name"}], "snr", "rssi"}`. `route` is `flood` or `direct` (its stored route); `hops` start at the tracker's end, and an empty list means heard directly. `name` is the contact whose key starts with `hash`, when only one does. `null` when the radio didn't log the packet. |
+| `sensors` | Its latest environment readings, when it shares them: `{"at", "temp_c", "pressure_hpa", "baro_alt_m"}`, or `null`. |
+
 #### `POST /api/tracking/devices` — write
 
 `{"contact_id": "…", "label": "Leg 1 – Sam", "interval_s": 60}` tracks a companion contact (`201`,
@@ -617,7 +629,8 @@ the device). It's asked at once, then every `interval_s` seconds. `409` if it's 
 
 #### `PATCH /api/tracking/devices/{id}` — write
 
-Any of `label` (`null` or empty clears it), `color` (`#rrggbb`), `interval_s`, `polling`, `show`.
+Any of `label` (`null` or empty clears it), `color` (`#rrggbb`), `interval_s`, `polling`, `show`,
+`course_id` (`null`: pick the course from its position; `404` for a course that doesn't exist).
 
 #### Other device requests — write (the GPX export is read)
 
@@ -815,7 +828,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

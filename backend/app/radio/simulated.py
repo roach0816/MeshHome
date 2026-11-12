@@ -532,17 +532,28 @@ class SimulatedRadio(RadioAdapter):
         stale = st.get("tracker_route_stale") and SIM_TRACKER_KEY in st["contact_paths"]
         if not stale and self._rng.random() >= float(st.get("tracker_dropout", 0.1)):
             lat, lon = sim_tracker_position()
+            n = st["tracker_requests"]
+            alt = 512.0 + 18 * math.sin(n / 9)  # rolling trail
             result = {
                 "lpp": [
-                    {"channel": 1, "type": "voltage", "value": 3.94},
+                    # A high-voltage cell (full at 4.35 V, like the SenseCAP X1's), slowly draining.
+                    {"channel": 1, "type": "voltage", "value": round(max(3.62, 4.33 - 0.002 * n), 2)},
                     {
                         "channel": 1,
                         "type": "gps",
-                        "value": {"latitude": lat, "longitude": lon, "altitude": 512.0},
+                        "value": {"latitude": lat, "longitude": lon, "altitude": round(alt, 1)},
                     },
+                    {
+                        "channel": 1,
+                        "type": "temperature",
+                        "value": round(27.5 + self._rng.uniform(-0.4, 0.4), 1),
+                    },
+                    {"channel": 1, "type": "barometer", "value": round(955.2 - alt / 8.3 + 6, 1)},
+                    {"channel": 1, "type": "altitude", "value": round(alt + self._rng.uniform(-1, 1), 1)},
                 ]
             }
-            self._spawn(self._resolve_later(fut, result, self._rng.uniform(0.4, 1.2)))
+            routed = SIM_TRACKER_KEY in st["contact_paths"]
+            self._spawn(self._tracker_reply(fut, result, routed, self._rng.uniform(0.4, 1.2)))
         return RemoteTicket(
             kind="telemetry",
             public_key=SIM_TRACKER_KEY,
@@ -550,6 +561,34 @@ class SimulatedRadio(RadioAdapter):
             timeout=4,
             handle=fut,
         )
+
+    async def _tracker_reply(self, fut: asyncio.Future, result, routed: bool, delay: float) -> None:
+        """Like a real radio: the reply packet is logged as heard, then the reply is decoded. On
+        its stored route it arrives direct (no hops listed); to a flood it comes back by flood,
+        through one or both of the simulated repeaters."""
+        await asyncio.sleep(delay)
+        if self.on_rx_packet and self._connected:
+            roof, hill = bytes.fromhex(_key("roof")[:2]), bytes.fromhex(_key("hilltop")[:2])
+            payload = bytes([int(SIM_SELF_KEY[:2], 16), int(SIM_TRACKER_KEY[:2], 16)]) + self._rng.randbytes(
+                18
+            )
+            if routed:
+                raw = packets.build(packets.TYPE_RESPONSE, payload, [], route=packets.ROUTE_DIRECT)
+            else:
+                hops = self._rng.choice([[hill], [hill, roof]])
+                raw = packets.build(packets.TYPE_PATH, payload, hops)
+            snr = round(self._rng.uniform(-4, 9) * 4) / 4
+            await self.on_rx_packet(raw, snr, self._rng.randint(-112, -80))
+            if not routed:
+                # The radio learns the route back from it: ours to the tracker is the reverse.
+                sim_state()["contact_paths"][SIM_TRACKER_KEY] = (
+                    len(hops),
+                    "".join(h.hex() for h in reversed(hops)),
+                )
+                if self.on_contacts_changed:
+                    await self.on_contacts_changed()
+        if not fut.done():
+            fut.set_result(result)
 
     async def remote_wait(self, ticket: RemoteTicket, timeout: float):
         if ticket.handle is None:

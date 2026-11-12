@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Satellite, Thermometer } from "lucide-react";
-import { api, type SensorHistory, type SensorsConfig, type SensorsState } from "../lib/api";
+import { api, type SensorHistory, type SensorsConfig, type SensorsState, type Units } from "../lib/api";
+import { unitsFor } from "../lib/units";
 import { cx, relativeSeconds } from "../lib/util";
 import { Section, Select } from "./SettingsKit";
 import { Badge, Button, ErrorText, Field, Input } from "./ui";
@@ -19,26 +20,9 @@ function useSensors() {
   return useQuery({ queryKey: ["sensors"], queryFn: () => api<SensorsState>("/api/sensors"), refetchInterval: 15_000 });
 }
 
-const fahrenheit = (c: number) => (c * 9) / 5 + 32;
-const INHG = 0.02953;
 const FEET = 3.28084;
-
-type Units = "metric" | "imperial";
-/** Readings in the chosen units (stored values are metric). */
-function unitsFor(u: Units) {
-  const imp = u === "imperial";
-  return {
-    temp: (c: number) => (imp ? fahrenheit(c) : c),
-    tempUnit: imp ? "°F" : "°C",
-    pressure: (h: number) => (imp ? h * INHG : h),
-    pressureUnit: imp ? "inHg" : "hPa",
-    pressureDigits: imp ? 2 : 1,
-    alt: (m: number) => (imp ? m * FEET : m),
-    altUnit: imp ? "ft" : "m",
-    dist: (m: number) => (imp ? m * FEET : m),
-    distUnit: imp ? "ft" : "m",
-  };
-}
+const INHG = 0.02953;
+const fahrenheit = (c: number) => (c * 9) / 5 + 32;
 
 function Status({ tone, children }: { tone: "ok" | "warn" | "muted" | "danger"; children: ReactNode }) {
   return <Badge tone={tone === "ok" ? "accent" : tone === "danger" ? "danger" : tone === "warn" ? "warn" : undefined}>{children}</Badge>;

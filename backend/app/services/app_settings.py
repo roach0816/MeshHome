@@ -146,6 +146,8 @@ class TrackingConfig(BaseModel):
     back_off: bool = True
     # How much of each device's recent path the map draws behind it.
     trail_minutes: int = Field(default=30, ge=0, le=1440)
+    # Distances, pace, altitude, temperature and pressure on the tracking page (stored in metric).
+    units: Literal["metric", "imperial"] = "metric"
 
 
 SENSORS_KEY = "sensors"

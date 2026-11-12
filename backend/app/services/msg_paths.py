@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.radio.packets import TYPE_GRP_TXT, TYPE_TXT_MSG, Packet
+from app.radio.packets import TYPE_GRP_TXT, TYPE_PATH, TYPE_RESPONSE, TYPE_TXT_MSG, Packet
 
 BEFORE_SECONDS = 10.0  # how long before the message its packet may have been heard
 FOLLOW_SECONDS = 60.0  # how long copies are still attached to the message
@@ -52,11 +52,16 @@ class PathTracker:
     _following: dict[str, tuple[Any, float, int]] = field(
         default_factory=dict
     )  # key -> (message id, until, count)
+    # Replies to requests (RESPONSE, or PATH when the request was flooded), for tracking.
+    _replies: deque[_Heard] = field(default_factory=lambda: deque(maxlen=50))
 
     def heard(
         self, packet: Packet, snr: float | None, rssi: float | None
     ) -> tuple[Any, dict[str, Any]] | None:
         """Note a packet. If it is a further copy of a known message: (message id, path entry)."""
+        if packet.payload_type in (TYPE_RESPONSE, TYPE_PATH) and len(packet.payload) >= 2:
+            self._replies.append(_Heard(self.clock(), packet, snr, rssi))
+            return None
         if packet.payload_type not in (TYPE_TXT_MSG, TYPE_GRP_TXT):
             return None
         now = self.clock()
@@ -123,6 +128,19 @@ class PathTracker:
         for h in copies:
             self._recent.remove(h)
         return found.packet.key, [path_entry(h) for h in copies[:MAX_PATHS]], found.packet
+
+    def claim_reply(self, *, sender_hash: int, self_hash: int | None, since: float) -> dict[str, Any] | None:
+        """The path of the first reply packet from that sender (to us) heard since `since` (this
+        tracker's clock), or None. Payload: destination hash (1), source hash (1), ..."""
+        for h in self._replies:
+            p = h.packet
+            if (
+                h.at >= since
+                and p.payload[1] == sender_hash
+                and (self_hash is None or p.payload[0] == self_hash)
+            ):
+                return path_entry(h)
+        return None
 
     def follow(self, key: str, message_id: Any, count: int) -> None:
         self._following[key] = (message_id, self.clock() + FOLLOW_SECONDS, count)

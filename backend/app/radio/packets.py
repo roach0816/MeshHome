@@ -25,9 +25,11 @@ from dataclasses import dataclass
 from Crypto.Cipher import AES
 
 ROUTE_TRANSPORT_FLOOD, ROUTE_FLOOD, ROUTE_DIRECT, ROUTE_TRANSPORT_DIRECT = 0, 1, 2, 3
+TYPE_RESPONSE = 0x01  # a reply to a request; payload: destination hash (1), source hash (1), MAC, ...
 TYPE_TXT_MSG = 0x02
 TYPE_ADVERT = 0x04  # payload: public key (32), timestamp (4), signature (64), app data
 TYPE_GRP_TXT = 0x05
+TYPE_PATH = 0x08  # a route back, carrying the reply to a flooded request; payload starts as RESPONSE's
 TYPE_TRACE = 0x09
 MAX_HASH_SIZE = 8
 

@@ -330,6 +330,11 @@ class TrackedDevice(Base):
     status_detail: Mapped[str | None] = mapped_column(String(300))
     failures: Mapped[int] = mapped_column(Integer, default=0)  # unanswered polls in a row
     battery_v: Mapped[float | None] = mapped_column(Float)
+    # The highest battery voltage it reported: above 4.25 V, its battery is a high-voltage one
+    # (full at 4.35 V or so, like the SenseCAP X1's), which changes how voltage maps to percent.
+    battery_max_v: Mapped[float | None] = mapped_column(Float)
+    # The course it's on, for progress and ETA (services/progress.py); None: the nearest one.
+    course_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("courses.id", ondelete="SET NULL"))
     # The contact's advert time that was last recorded as a position, so each advert counts once.
     advert_seen_at: Mapped[datetime | None]
 
@@ -346,6 +351,16 @@ class TrackPosition(Base):
     alt_m: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(16))  # "telemetry" | "advert"
     battery_v: Mapped[float | None] = mapped_column(Float)
+    # How the reply reached this radio (telemetry only, when the radio logged the packet): signal
+    # of the last hop, "direct" or "flood", and the repeaters' hash prefixes, tracker's end first.
+    snr: Mapped[float | None] = mapped_column(Float)
+    rssi: Mapped[float | None] = mapped_column(Float)
+    route: Mapped[str | None] = mapped_column(String(8))
+    hops: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # Its sensors, when it shares them (MeshCore app → Telemetry → Environment).
+    temp_c: Mapped[float | None] = mapped_column(Float)
+    pressure_hpa: Mapped[float | None] = mapped_column(Float)
+    baro_alt_m: Mapped[float | None] = mapped_column(Float)
 
 
 class Course(Base):

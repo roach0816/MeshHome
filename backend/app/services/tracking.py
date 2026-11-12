@@ -28,7 +28,7 @@ from sqlalchemy import delete, select
 
 from app import db
 from app.models import Contact, TrackedDevice, TrackPosition, utcnow
-from app.radio.base import RadioError, advert_position
+from app.radio.base import RadioError, advert_position, hops_from_path
 from app.radio.supervisor import supervisor
 from app.realtime import hub
 from app.services import app_settings, remote_admin
@@ -73,6 +73,93 @@ def parse_telemetry(result: Any) -> tuple[dict[str, float | None] | None, float 
     return fix, battery
 
 
+def parse_sensors(result: Any) -> dict[str, float]:
+    """Readings from its environment sensors, when it shares them (MeshCore app → Telemetry →
+    Environment): temperature (°C), barometric pressure (hPa) and the altitude worked out from
+    it (m). The node's own sensors are on channel 1; other channels are preferred less."""
+    lpp = result.get("lpp") if isinstance(result, dict) else None
+    names = {"temperature": "temp_c", "barometer": "pressure_hpa", "altitude": "baro_alt_m"}
+    out: dict[str, float] = {}
+    own: set[str] = set()
+    for e in lpp if isinstance(lpp, list) else []:
+        if not isinstance(e, dict) or e.get("type") not in names:
+            continue
+        key, v = names[e["type"]], e.get("value")
+        if (
+            isinstance(v, int | float)
+            and not isinstance(v, bool)
+            and (key not in out or (e.get("channel") == 1 and key not in own))
+        ):
+            out[key] = round(float(v), 2)
+            if e.get("channel") == 1:
+                own.add(key)
+    return out
+
+
+def reply_route(heard: dict[str, Any] | None, contact_meta: dict[str, Any]) -> dict[str, Any] | None:
+    """How a reply reached the radio: {"route", "hops" (tracker's end first), "snr", "rssi"}.
+    A flood packet lists the repeaters it passed. A direct one arrives with an empty list (each
+    repeater removes itself), so its hops are the stored route, reversed (it's ours to them)."""
+    if heard is None:
+        return None
+    hops = list(heard.get("hops") or [])
+    route = heard.get("route") or "direct"
+    if route == "direct" and not hops:
+        path_hex = str(contact_meta.get("path_hex") or "")
+        n = int(contact_meta.get("path_len") if contact_meta.get("path_len") is not None else -1)
+        if n > 0 and path_hex and len(path_hex) % (2 * n) == 0:
+            hops = list(reversed(hops_from_path(path_hex, n, len(path_hex) // (2 * n))))
+    return {"route": route, "hops": hops, "snr": heard.get("snr"), "rssi": heard.get("rssi")}
+
+
+# Resting voltage -> charge, for a standard Li-ion/LiPo cell (full at 4.2 V) and a high-voltage
+# one (full at 4.35-4.4 V, like the SenseCAP X1's). Rough: load and temperature move it a little.
+_LIION = (
+    (4.20, 100),
+    (4.10, 90),
+    (4.00, 80),
+    (3.92, 70),
+    (3.86, 60),
+    (3.81, 50),
+    (3.78, 40),
+    (3.75, 30),
+    (3.72, 20),
+    (3.68, 10),
+    (3.60, 5),
+    (3.30, 0),
+)
+_LIHV = (
+    (4.33, 100),
+    (4.22, 90),
+    (4.11, 80),
+    (4.02, 70),
+    (3.94, 60),
+    (3.88, 50),
+    (3.83, 40),
+    (3.79, 30),
+    (3.75, 20),
+    (3.70, 10),
+    (3.62, 5),
+    (3.30, 0),
+)
+HIGH_VOLTAGE_ABOVE = 4.25
+LOW_BATTERY_PCT = 20
+
+
+def battery_percent(volts: float | None, max_seen: float | None = None) -> int | None:
+    """About how full a single-cell battery is, from its voltage. A battery that has ever read
+    above 4.25 V is taken to be a high-voltage one."""
+    if volts is None or not 2.5 <= volts <= 5.0:
+        return None
+    table = _LIHV if (max_seen or 0) > HIGH_VOLTAGE_ABOVE or volts > HIGH_VOLTAGE_ABOVE else _LIION
+    if volts >= table[0][0]:
+        return 100
+    for (v1, p1), (v2, p2) in zip(table, table[1:], strict=False):
+        if volts >= v2:
+            return round(p2 + (p1 - p2) * (volts - v2) / (v1 - v2))
+    return 0
+
+
 def next_interval(interval_s: int, failures: int, back_off: bool) -> float:
     if back_off and failures >= BACK_OFF_AFTER:
         return max(float(interval_s), min(interval_s * 2.0 ** (failures - BACK_OFF_AFTER + 1), BACK_OFF_MAX))
@@ -87,6 +174,7 @@ class Tracking:
         self._next_due: dict[uuid.UUID, float] = {}  # device id -> monotonic time
         self._polling: uuid.UUID | None = None
         self._prune_at = 0.0
+        self._asked_at = 0.0  # when the last request went out (for matching its reply packet)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -178,6 +266,7 @@ class Tracking:
     # ---- one poll --------------------------------------------------------------------
 
     async def _ask(self, public_key: str) -> tuple[str, Any]:
+        self._asked_at = time.monotonic()
         try:
             ticket = await supervisor.remote_send(public_key, "telemetry")
             wait = min(max(ticket.timeout * 1.5, MIN_WAIT), MAX_WAIT)
@@ -217,7 +306,8 @@ class Tracking:
                     # Probably moved out of that route: flood, and learn the new route from the reply.
                     flooded = True
                     outcome, data = await self._ask(contact.public_key)
-                status = await self._record(device_id, outcome, data, flooded)
+                link = await self._reply_link(contact) if outcome == "reply" else None
+                status = await self._record(device_id, outcome, data, flooded, link)
             finally:
                 self._polling = None
             async with db.session_factory()() as s:
@@ -231,7 +321,25 @@ class Tracking:
             hub.publish("tracking-updated", device_id=str(device_id))
             return status
 
-    async def _record(self, device_id: uuid.UUID, outcome: str, data: Any, flooded: bool) -> str | None:
+    async def _reply_link(self, contact: Contact) -> dict[str, Any] | None:
+        """The reply's route and signal, from the radio's packet log (logged just before the reply
+        is decoded; a moment's grace for the event order)."""
+        heard = None
+        for _ in range(3):
+            heard = supervisor.reply_heard(contact.public_key, self._asked_at)
+            if heard is not None:
+                break
+            await asyncio.sleep(0.15)
+        if heard is None:
+            return None
+        async with db.session_factory()() as s:
+            c = await s.get(Contact, contact.id)  # its route now, as the reply may have taught it
+            meta = (c.meta if c is not None else None) or {}
+        return reply_route(heard, meta)
+
+    async def _record(
+        self, device_id: uuid.UUID, outcome: str, data: Any, flooded: bool, link: dict[str, Any] | None = None
+    ) -> str | None:
         now = utcnow()
         async with db.session_factory()() as s:
             d = await s.get(TrackedDevice, device_id, with_for_update=True)
@@ -244,11 +352,18 @@ class Tracking:
                 d.failures = 0
                 if battery is not None:
                     d.battery_v = battery
+                    d.battery_max_v = max(battery, d.battery_max_v or 0.0)
                 if fix is not None:
                     d.status, d.status_detail = "ok", None
                     s.add(
                         TrackPosition(
-                            device_id=device_id, at=now, source="telemetry", battery_v=battery, **fix
+                            device_id=device_id,
+                            at=now,
+                            source="telemetry",
+                            battery_v=battery,
+                            **fix,
+                            **parse_sensors(data),
+                            **(link or {}),
                         )
                     )
                 else:

@@ -6831,6 +6831,87 @@
         "type": "object",
         "title": "CoursePatch"
       },
+      "CourseProgress": {
+        "properties": {
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
+          },
+          "color": {
+            "type": "string",
+            "title": "Color"
+          },
+          "auto": {
+            "type": "boolean",
+            "title": "Auto"
+          },
+          "total_m": {
+            "type": "number",
+            "title": "Total M"
+          },
+          "along_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Along M"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "off_course_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Off Course M"
+          },
+          "finished": {
+            "type": "boolean",
+            "title": "Finished"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "course_id",
+          "course_name",
+          "color",
+          "auto",
+          "total_m",
+          "along_m",
+          "pct",
+          "off_course_m",
+          "finished",
+          "at"
+        ],
+        "title": "CourseProgress"
+      },
       "CustomVarIn": {
         "properties": {
           "key": {
@@ -6942,6 +7023,18 @@
               }
             ],
             "title": "Show"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
           }
         },
         "type": "object",
@@ -7127,6 +7220,31 @@
           "at"
         ],
         "title": "HistoryPoint"
+      },
+      "Hop": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash",
+          "name"
+        ],
+        "title": "Hop"
       },
       "InstallIn": {
         "properties": {
@@ -7947,6 +8065,54 @@
         ],
         "title": "OptionOut"
       },
+      "Pace": {
+        "properties": {
+          "speed_mps": {
+            "type": "number",
+            "title": "Speed Mps"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "moving": {
+            "type": "boolean",
+            "title": "Moving"
+          },
+          "remaining_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining M"
+          },
+          "eta_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "speed_mps",
+          "basis",
+          "moving",
+          "remaining_m",
+          "eta_at"
+        ],
+        "title": "Pace"
+      },
       "PassphraseIn": {
         "properties": {
           "passphrase": {
@@ -8378,6 +8544,57 @@
         ],
         "title": "ReadPositionRequest"
       },
+      "ReplyLink": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "route": {
+            "type": "string",
+            "title": "Route"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/Hop"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr"
+          },
+          "rssi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rssi"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "route",
+          "hops",
+          "snr",
+          "rssi"
+        ],
+        "title": "ReplyLink"
+      },
       "RequestIn": {
         "properties": {
           "kind": {
@@ -8605,6 +8822,56 @@
           "body"
         ],
         "title": "SendRequest"
+      },
+      "Sensors": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp C"
+          },
+          "pressure_hpa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Hpa"
+          },
+          "baro_alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baro Alt M"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "temp_c",
+          "pressure_hpa",
+          "baro_alt_m"
+        ],
+        "title": "Sensors"
       },
       "SensorsConfig": {
         "properties": {
@@ -9437,6 +9704,74 @@
             ],
             "title": "Battery V"
           },
+          "battery_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Pct"
+          },
+          "battery_low": {
+            "type": "boolean",
+            "title": "Battery Low",
+            "default": false
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CourseProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Pace"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sensors": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sensors"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "current_radio": {
             "type": "boolean",
             "title": "Current Radio"
@@ -9522,6 +9857,15 @@
             "minimum": 0.0,
             "title": "Trail Minutes",
             "default": 30
+          },
+          "units": {
+            "type": "string",
+            "enum": [
+              "metric",
+              "imperial"
+            ],
+            "title": "Units",
+            "default": "metric"
           }
         },
         "type": "object",

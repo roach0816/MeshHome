@@ -62,6 +62,17 @@ export function TrackingSection() {
           </label>
           {c.enabled && (
             <>
+              <Field label="Units" htmlFor="trk-units" hint="Distances, pace, altitude, temperature and pressure on the Tracking page.">
+                <Select
+                  id="trk-units"
+                  value={c.units}
+                  options={[
+                    { value: "metric" as const, label: "Metric (km, m, °C, hPa)" },
+                    { value: "imperial" as const, label: "Imperial (mi, ft, °F, inHg)" },
+                  ]}
+                  onChange={(v) => save.mutate({ ...c, units: v })}
+                />
+              </Field>
               <Field label="Trail on the map" htmlFor="trk-trail" hint="The recent path drawn behind each tracker.">
                 <Select
                   id="trk-trail"
