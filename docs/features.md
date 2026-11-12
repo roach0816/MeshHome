@@ -290,8 +290,10 @@ followed too, alongside MeshCore trackers on the same map.
   public channel, positions are sent blurred to about 1.5 km and anyone nearby can follow them, so
   MeshHome sets up a **private team channel**: a random key, positions at full precision, and your
   region and modem preset. Its **QR code** (the Meshtastic share link) is scanned into each tracker
-  and relay with the Meshtastic app (Channels → scan → Replace), which also sets their radio to
-  match. The code holds the channel's key.
+  and relay with the Meshtastic app, choosing **Replace**, which also sets their radio to match. On
+  an iPhone, scan it with the Camera app and tap the meshtastic.org link; on Android, use the scan
+  button in the app's Settings → Channels. On the phone showing MeshHome, **Open in Meshtastic**
+  does the same without scanning. The code holds the channel's key.
 - **Adding one:** in Tracking, **Add a tracker** → *Meshtastic node*, from the nodes the radio has
   heard (trackers first). Course, label and colour work as for MeshCore trackers; there's no
   interval to set, as the tracker decides how often it broadcasts (set it on the tracker, for
@@ -299,8 +301,9 @@ followed too, alongside MeshCore trackers on the same map.
 - **The radio HAT with Meshtastic:** in **Settings → Radio connection → Radio HAT on this Pi**,
   *Switch to Meshtastic* (or `sudo meshhome radio-hat setup --firmware meshtastic`) installs
   meshtasticd, Meshtastic for Linux, from Meshtastic's apt repository and runs it on the HAT instead
-  of ZephCore. The HAT then isn't MeshHome's MeshCore radio: MeshHome turns that radio mode off and
-  hears Meshtastic trackers through the HAT. *Switch to MeshCore* brings back ZephCore with its
+  of ZephCore. The HAT then isn't MeshHome's MeshCore radio: MeshHome sets the radio mode to None
+  (the time isn't counted as a collection gap) and hears Meshtastic trackers through the HAT,
+  under Settings → Tracking. *Switch to MeshCore* brings back ZephCore with its
   identity, contacts and channels, and MeshHome's radio with it. Choose the RAK module (RAK13300 or
   RAK13302) and its IO slot.
 - **Not tested on real Meshtastic hardware yet.** It was tested against meshtasticd 2.7.26 (two
@@ -397,7 +400,8 @@ message box.
 
 - **Durable receive pipeline:** the server fetches one message from the radio, commits it to the
   database, and only then fetches the next. Collection gaps (outages, pauses, restarts) are recorded
-  and shown in Settings.
+  and shown in Settings. With the radio mode set to None, nothing is collected by choice, so no gap
+  stays open.
 - **One radio owner:** a PostgreSQL advisory lock makes sure exactly one process owns the radio.
 - **Realtime:** an authenticated WebSocket pushes changes; the app falls back to REST resyncs if that
   connection drops.

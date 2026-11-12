@@ -8,7 +8,7 @@ import pytest
 
 from app.config import get_settings
 from app.services import radio_hat
-from tests.conftest import csrf, do_setup
+from tests.conftest import csrf, do_setup, wait_for
 
 
 @pytest.fixture
@@ -187,6 +187,14 @@ async def test_switching_the_hat_to_meshtastic_and_back(client, native, pi5):
     assert (await client.get("/api/settings/radio")).json()["mode"] == "none"
     assert (await client.get("/api/settings/meshtastic")).json()["source"] == "hat"
     (native / "config-request.json").unlink()
+
+    # No MeshCore radio by choice: the status says why, and it isn't a collection gap.
+    async def quiet():
+        st = (await client.get("/api/status")).json()
+        meshtastic_said = st["radio"]["detail"] == "The radio HAT runs Meshtastic, for Meshtastic trackers"
+        return meshtastic_said and not any(g["open"] for g in st["gaps"])
+
+    await wait_for(quiet)
 
     (native / "radio-hat.json").write_text(
         json.dumps(

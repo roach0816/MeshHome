@@ -361,7 +361,8 @@ function RadioSection() {
   // The HAT option is offered on a Raspberry Pi 4/5 native install (or when it is already chosen).
   const offerHat = !!hat.data?.board || cfg.data?.mode === "hat";
   // Usable as the MeshCore radio only while it runs ZephCore (not Meshtastic).
-  const hatUsable = hat.data && hat.data.firmware !== "meshtastic" && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
+  const hatMeshtastic = hat.data?.firmware === "meshtastic";
+  const hatUsable = hat.data && !hatMeshtastic && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
 
   return (
     <Section
@@ -406,7 +407,9 @@ function RadioSection() {
             [
               ["simulated", "Simulated", "Sample traffic, no hardware"],
               ["tcp", "MeshCore TCP", "Ethernet companion radio"],
-              ...(offerHat ? [["hat", "Radio HAT on this Pi", "RAK6421 LoRa HAT, run by MeshHome"]] : []),
+              ...(offerHat
+                ? [["hat", "Radio HAT on this Pi", hatMeshtastic ? "Running Meshtastic, for Meshtastic trackers" : "RAK6421 LoRa HAT, run by MeshHome"]]
+                : []),
               ["none", "None", "No radio connection"],
             ] as [RadioMode, string, string][]
           ).map(([m, title, sub]) => (
@@ -472,7 +475,20 @@ function RadioSection() {
         />
       )}
       {mode === "hat" && cfg.data?.mode !== "hat" && hat.data && !hatUsable && (
-        <p className="text-xs text-muted">Set up the radio HAT first, then select Save and reconnect.</p>
+        <p className="text-xs text-muted">
+          {hatMeshtastic ? (
+            <>
+              Nothing to save here: while the HAT runs Meshtastic, MeshHome's MeshCore radio stays on None. Its trackers are
+              set up in{" "}
+              <Link to="/settings/tracking" className="text-accent underline">
+                Settings → Tracking
+              </Link>
+              .
+            </>
+          ) : (
+            "Set up the radio HAT first, then select Save and reconnect."
+          )}
+        </p>
       )}
 
       {mode === "simulated" && (

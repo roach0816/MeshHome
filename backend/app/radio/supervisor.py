@@ -186,7 +186,15 @@ class RadioSupervisor:
                 await self._wait_reload()
                 continue
             if cfg.mode == "none" or (cfg.mode == "tcp" and not cfg.host):
-                self._set("not_configured", "No radio configured yet — set one up in Settings")
+                detail = "No radio configured yet — set one up in Settings"
+                if cfg.mode == "none":
+                    # No radio, by choice: nothing is missed, so it isn't a collection gap.
+                    await self._close_gaps()
+                    async with db.session_factory()() as s:
+                        switched = await app_settings.get_raw(s, app_settings.HAT_SWITCH_KEY) or {}
+                    if switched.get("radio_mode") or radio_hat.firmware() == "meshtastic":
+                        detail = "The radio HAT runs Meshtastic, for Meshtastic trackers"
+                self._set("not_configured", detail)
                 await self._wait_reload()
                 continue
             if cfg.paused:

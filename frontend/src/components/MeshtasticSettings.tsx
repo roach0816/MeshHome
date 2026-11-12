@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Loader2, QrCode as QrIcon, Radio } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Copy, ExternalLink, Loader2, QrCode as QrIcon, Radio } from "lucide-react";
+import { canCopy } from "../lib/util";
 import { api, type MeshtasticConfig, type MeshtasticInfo, type MeshtasticSource } from "../lib/api";
 import { useRadioHat } from "./RadioHat";
 import { Dialog } from "./Dialog";
@@ -237,11 +238,33 @@ function ChannelQrDialog({ name, onClose }: { name: string; onClose: () => void 
     retry: 3,
     retryDelay: 2000,
   });
+  const [copied, setCopied] = useState(false);
+  const copy = (text: string) =>
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   return (
     <Dialog title={`Team channel ${name}`} onClose={onClose} footer={<Button onClick={onClose}>Done</Button>}>
       <div className="space-y-3 text-sm">
         {url.data ? (
-          <QrCode value={url.data.url} label={`QR code for the team channel ${name}`} className="mx-auto size-64 rounded-lg" />
+          <>
+            <QrCode value={url.data.url} label={`QR code for the team channel ${name}`} className="mx-auto size-64 rounded-lg" />
+            <div className="flex flex-wrap justify-center gap-2">
+              <a
+                href={url.data.url}
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium hover:bg-surface-2"
+              >
+                <ExternalLink className="size-4" aria-hidden /> Open in Meshtastic
+              </a>
+              {canCopy() && (
+                <Button onClick={() => copy(url.data.url)}>
+                  {copied ? <Check className="size-4 text-ok" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+                  {copied ? "Copied" : "Copy link"}
+                </Button>
+              )}
+            </div>
+          </>
         ) : url.isPending ? (
           <p className="flex items-center gap-2 text-muted">
             <Loader2 className="size-4 animate-spin" aria-hidden /> Reading the channel from the radio…
@@ -252,8 +275,23 @@ function ChannelQrDialog({ name, onClose }: { name: string; onClose: () => void 
         <p className="text-xs text-warn">The code holds the channel's key: anyone who scans it can follow your trackers.</p>
         <ol className="list-decimal space-y-1.5 pl-5">
           <li>
-            Connect the Meshtastic app on your phone to each tracker (and to the relay at your car) by Bluetooth, open
-            <strong> Channels</strong>, scan this code and choose <strong>Replace</strong>.
+            Connect the Meshtastic app on your phone to a tracker (or the relay at your car) by Bluetooth. Then:
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              <li>
+                <strong>iPhone:</strong> scan this code with the <strong>Camera</strong> app and tap the meshtastic.org
+                link.
+              </li>
+              <li>
+                <strong>Android:</strong> in the Meshtastic app, <strong>Settings → Channels</strong> → scan this code.
+              </li>
+              <li>
+                <strong>On the phone that's showing this page:</strong> select <strong>Open in Meshtastic</strong>.
+              </li>
+            </ul>
+            <p className="mt-1">
+              Choose <strong>Replace</strong> (not Add), so this becomes the tracker's main channel. Repeat for each
+              tracker and the relay.
+            </p>
           </li>
           <li>
             On each tracker: <strong>Position</strong> → GPS on, smart position on, broadcast interval 60–120 s. For a battery
