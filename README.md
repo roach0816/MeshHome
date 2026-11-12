@@ -27,6 +27,9 @@ tablet or computer on your network.
   mesh, with repeaters named from your contacts.
 - **Contacts and map:** a searchable contact list that follows the radio's adverts, and a map of every
   node that shares its position.
+- **Tracking:** follow GPS trackers (such as a relay runner's) on their own map with your course from
+  GPX files, asking each for its position as often as every minute, and save an offline map for
+  venues without internet.
 - **Your radio's settings** from the browser: identity and location, region presets, channels (with
   QR codes and region scopes), routing and telemetry.
 - **Repeater administration:** log in to your repeaters and room servers to read their status, use

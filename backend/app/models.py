@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -305,3 +306,71 @@ class SensorReading(Base):
     lon: Mapped[float | None] = mapped_column(Float)
     alt_m: Mapped[float | None] = mapped_column(Float)
     satellites: Mapped[int | None] = mapped_column(Integer)
+
+
+class TrackedDevice(Base):
+    """A contact whose position MeshHome asks for on a schedule (services/tracking.py), e.g. a GPS
+    tracker carried by a runner. Positions come from telemetry replies and from its adverts."""
+
+    __tablename__ = "tracked_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    contact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contacts.id", ondelete="CASCADE"), unique=True)
+    # Shown instead of the contact's name, e.g. who carries it now ("Leg 7 – Sam").
+    label: Mapped[str | None] = mapped_column(String(64))
+    color: Mapped[str] = mapped_column(String(7), default="#e11d48")
+    interval_s: Mapped[int] = mapped_column(Integer, default=60)
+    polling: Mapped[bool] = mapped_column(Boolean, default=True)  # ask for its position on schedule
+    show: Mapped[bool] = mapped_column(Boolean, default=True)  # on the tracking map
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_poll_at: Mapped[datetime | None]
+    last_reply_at: Mapped[datetime | None]
+    # ok | no_position | no_answer | error | new
+    status: Mapped[str] = mapped_column(String(16), default="new")
+    status_detail: Mapped[str | None] = mapped_column(String(300))
+    failures: Mapped[int] = mapped_column(Integer, default=0)  # unanswered polls in a row
+    battery_v: Mapped[float | None] = mapped_column(Float)
+    # The contact's advert time that was last recorded as a position, so each advert counts once.
+    advert_seen_at: Mapped[datetime | None]
+
+
+class TrackPosition(Base):
+    __tablename__ = "track_positions"
+    __table_args__ = (Index("ix_track_positions_device_at", "device_id", "at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tracked_devices.id", ondelete="CASCADE"))
+    at: Mapped[datetime] = mapped_column(default=utcnow)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    alt_m: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16))  # "telemetry" | "advert"
+    battery_v: Mapped[float | None] = mapped_column(Float)
+
+
+class Course(Base):
+    """A course drawn on the tracking map, from a GPX file (services/courses.py)."""
+
+    __tablename__ = "courses"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(80))
+    color: Mapped[str] = mapped_column(String(7))
+    visible: Mapped[bool] = mapped_column(Boolean, default=True)
+    # [[[lat, lon], ...], ...]: one list per track segment or route.
+    segments: Mapped[list[Any]] = mapped_column(JSONB)
+    waypoints: Mapped[list[Any]] = mapped_column(JSONB)  # [{"name", "lat", "lon"}]
+    distance_m: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class MapTile(Base):
+    """A map tile saved for use without internet (services/offline_map.py)."""
+
+    __tablename__ = "map_tiles"
+
+    z: Mapped[int] = mapped_column(Integer, primary_key=True)
+    x: Mapped[int] = mapped_column(Integer, primary_key=True)
+    y: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(32))
+    data: Mapped[bytes] = mapped_column(LargeBinary)

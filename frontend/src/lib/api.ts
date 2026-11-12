@@ -306,6 +306,8 @@ export interface MapConfig {
   max_zoom: number;
   /** Name the place at a node's position, looked up by the server (OpenStreetMap Nominatim). */
   place_names: boolean;
+  /** Use the tiles saved on this server (Settings → Map → Offline map) instead of the tile server. */
+  offline: boolean;
 }
 
 /** GET /api/settings/app-install: "Install as an app" (HTTPS only). */
@@ -354,6 +356,7 @@ export interface MapData {
   nodes: MapNode[];
   without_location: number;
   tiles: MapConfig;
+  offline: OfflineSaved | null;
 }
 
 export interface SetupStatus {
@@ -733,4 +736,106 @@ export interface SensorsState {
 export interface SensorHistory {
   hours: number;
   points: { at: string; temperature_c: number | null; humidity: number | null; pressure_hpa: number | null; gas_ohms: number | null }[];
+}
+
+// ---- tracking and the offline map ------------------------------------------------------
+
+export interface TrackingConfig {
+  enabled: boolean;
+  back_off: boolean;
+  trail_minutes: number;
+}
+
+export interface TrackPoint {
+  at: string;
+  lat: number;
+  lon: number;
+  alt_m: number | null;
+  source: "telemetry" | "advert";
+}
+
+export type TrackStatus = "ok" | "no_position" | "no_answer" | "error" | "new";
+
+export interface TrackedDevice {
+  id: string;
+  contact_id: string;
+  public_key: string;
+  name: string;
+  label: string | null;
+  color: string;
+  interval_s: number;
+  polling: boolean;
+  show: boolean;
+  status: TrackStatus;
+  status_detail: string | null;
+  failures: number;
+  last_poll_at: string | null;
+  last_reply_at: string | null;
+  battery_v: number | null;
+  current_radio: boolean;
+  is_simulated: boolean;
+  next_poll_in: number | null;
+  asking: boolean;
+  last_position: TrackPoint | null;
+  trail: TrackPoint[];
+}
+
+export interface Bounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+export interface OfflineSaved {
+  tiles: number;
+  bytes: number;
+  min_zoom: number | null;
+  max_zoom: number | null;
+  source: string | null;
+  source_name: string | null;
+  attribution: string | null;
+  bounds: Bounds | null;
+  downloaded_at: string | null;
+}
+
+export interface TrackingData {
+  config: TrackingConfig;
+  radio_connected: boolean;
+  intervals: number[];
+  base: { name: string; lat: number; lon: number } | null;
+  devices: TrackedDevice[];
+  tiles: MapConfig;
+  offline: OfflineSaved;
+}
+
+export interface Course {
+  id: string;
+  name: string;
+  color: string;
+  visible: boolean;
+  distance_m: number;
+  segments: [number, number][][];
+  waypoints: { name: string; lat: number; lon: number }[];
+  created_at: string;
+}
+
+export interface OfflineJob {
+  state: "idle" | "running" | "done" | "cancelled" | "error";
+  source: string | null;
+  total: number;
+  done: number;
+  skipped: number;
+  missing: number;
+  failed: number;
+  error: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export interface OfflineMapState {
+  sources: { id: string; name: string; max_zoom: number; attribution: string; note: string }[];
+  max_tiles: number;
+  saved: OfflineSaved;
+  job: OfflineJob;
 }

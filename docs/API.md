@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.17**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.0.18**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -588,6 +588,63 @@ The place at a position, such as a node's advertised one: `{"name": "Springfield
 `name` is `null` when there is no named place there or the lookup failed. With place names turned
 off (`place_names: false` in the map settings), nothing is looked up and `enabled` is `false`.
 
+### Tracking
+
+Positions of chosen contacts, such as GPS trackers, which MeshHome asks for on a schedule (see
+[features](features.md#tracking)). Tracking is off until it's turned on in the web interface
+(`GET /api/settings/tracking`: `{"enabled", "back_off", "trail_minutes"}`); while it's off, adding
+a device or asking one returns `409`.
+
+#### `GET /api/tracking` — read
+
+Everything for the tracking map: `config`, `radio_connected`, `intervals` (the allowed
+`interval_s` values: 60, 120, 300, 600, 900), `base` (this radio's own position, if set), `tiles`
+(the map settings) and `offline` (the saved offline map), and `devices`. Each device has its
+contact (`contact_id`, `public_key`, `name`), `label` (shown instead of the name when set),
+`color`, `interval_s`, `polling` (asked on schedule), `show` (on the map), `status`, `status_detail`,
+`failures` (unanswered requests in a row), `last_poll_at`, `last_reply_at`, `battery_v`,
+`next_poll_in` (seconds), `asking` (a request is out now), `last_position` and `trail` (positions
+within `trail_minutes`, oldest first). A position is `{"at", "lat", "lon", "alt_m", "source"}`, with
+`source` `telemetry` (it answered a request) or `advert`.
+
+`status` is `new` (not asked yet), `ok`, `no_position` (it answered without a position: no GPS fix,
+or it doesn't share its location with this node), `no_answer` or `error`.
+
+#### `POST /api/tracking/devices` — write
+
+`{"contact_id": "…", "label": "Leg 1 – Sam", "interval_s": 60}` tracks a companion contact (`201`,
+the device). It's asked at once, then every `interval_s` seconds. `409` if it's already tracked.
+
+#### `PATCH /api/tracking/devices/{id}` — write
+
+Any of `label` (`null` or empty clears it), `color` (`#rrggbb`), `interval_s`, `polling`, `show`.
+
+#### Other device requests — write (the GPX export is read)
+
+| Request | Does |
+| --- | --- |
+| `POST /api/tracking/devices/{id}/poll` | Ask it for its position now (`202`); the answer arrives as a `tracking-updated` event. `409` if the radio isn't connected. |
+| `DELETE /api/tracking/devices/{id}/positions` | Delete its position history, keeping it tracked (`204`). |
+| `DELETE /api/tracking/devices/{id}` | Stop tracking it and delete its positions; the contact stays (`204`). |
+| `GET /api/tracking/devices/{id}/track.gpx?hours=48` | Its positions over the last `hours` (1–720) as a GPX track. |
+
+#### Courses
+
+| Request | Does |
+| --- | --- |
+| `GET /api/tracking/courses` — read | Courses: `id`, `name`, `color`, `visible`, `distance_m`, `segments` (`[[[lat, lon], …], …]`), `waypoints` (`[{"name", "lat", "lon"}]`). |
+| `POST /api/tracking/courses?filename=Green%20Loop.gpx` — write | A GPX file as the raw body (at most 2 MB): its tracks, routes and waypoints. The name is `name` if given, else the file's own, else `filename`. A colour in the name or filename ("Green loop") picks that colour. `422` with the reason if it can't be read. |
+| `PATCH /api/tracking/courses/{id}` — write | Any of `name`, `color`, `visible`. |
+| `DELETE /api/tracking/courses/{id}` — write | `204`. |
+
+#### `GET /api/offline-map` — read
+
+The offline map: `saved` (`tiles`, `bytes`, `min_zoom`, `max_zoom`, `source_name`, `attribution`,
+`bounds`, `downloaded_at`; `tiles` is 0 when none is saved), the current or last download (`job`:
+`state`, `total`, `done`, `skipped`, `missing`, `failed`, `error`), and the `sources` offered.
+Downloading and deleting it are for the web interface. The maps use it while `offline` is true in
+the map settings.
+
 ### Settings and radio information (read)
 
 | Request | Returns |
@@ -595,7 +652,7 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 | `GET /api/sensors` | Sensors attached to the Pi: `{"available": true, "environment": {"status": "ok", "address": 118, "reading": {"temperature_c": 21.4, "humidity": 48.0, "pressure_hpa": 1013.2, "gas_ohms": 120000, "at": 1792980817}}, "gnss": {"status": "fix", "device": "/dev/serial0", "reading": {"fix": true, "lat": …, "lon": …, "alt_m": …, "satellites": 9, "at": …}, "location_update": null}, "config": {...}}`. Status: `off`, `not_found`, `ok`/`fix`, `no_fix`, `silent` (GPS not sending) or `error`. `available` is false in a container (Docker, Kubernetes): only native installs read sensors (feature `sensors` in `GET /api/meta`), so everything stays `off` and `PUT /api/settings/sensors` returns 409. |
 | `GET /api/sensors/history?hours=24` | Stored readings (every 5 minutes, kept 30 days), averaged into at most 300 points: `{"hours": 24, "points": [{"at": "…", "temperature_c": …, "humidity": …, "pressure_hpa": …, "gas_ohms": …}]}`. `hours` is 1–720. |
 | `GET /api/settings/notifications` | `{"sound": "off" \| "all" \| "dms"}` (browser notification sound). |
-| `GET /api/settings/map` | Map tile URL, attribution, maximum zoom, and `place_names` (look up place names for node positions). |
+| `GET /api/settings/map` | Map tile URL, attribution, maximum zoom, `place_names` (look up place names for node positions), and `offline` (the maps use the saved offline map; see `GET /api/offline-map`). |
 | `GET /api/settings/app-install` | "Install as an app": `{"enabled": false, "https": true}`. `https` says whether this request reached the server over HTTPS (directly or through a proxy that sends `X-Forwarded-Proto: https`). While `enabled`, `/manifest.webmanifest` serves the web app manifest; otherwise it answers `404`. |
 | `GET /api/settings/routing` | The preferred repeater: `{"preferred_repeater": "<64 hex public key>" \| null}`. Direct messages, bot replies and remote requests go through it whenever that works; see [features](features.md#messaging). Messages sent through it have `meta.delivery.via` (the repeater's name). |
 | `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone", "env": true}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, `/env` (when `env` is true and an environment sensor is working on a native install; see `GET /api/sensors`), and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
@@ -613,7 +670,7 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 
 `/api/auth/*` (except `GET /api/auth/me`, which returns `{"username", "home_name"}`),
 `/api/api-keys`, `/api/setup`, `POST`/`PUT` under `/api/system/*`, `PUT /api/settings/radio`,
-`PUT /api/settings/bot`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
+`PUT /api/settings/bot`, `PUT /api/settings/tracking`, `POST /api/offline-map/download`, `POST /api/offline-map/cancel`, `DELETE /api/offline-map`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
 `/api/radio/simulate-incoming`, `DELETE /api/simulated-data`, `POST /api/system/radio-hat`, and every `PUT`/`POST`/`DELETE`
 under `/api/radio/config`, `/api/radio/channels`, `/api/radio/custom-vars` and `/api/radio/actions`,
 everything under `/api/remote` (remote administration of repeaters and room servers), and
@@ -652,6 +709,9 @@ changed so you can fetch it over HTTP. They do not carry message text.
 | `radio-status-changed` | `state` | `GET /api/status` |
 | `settings-updated` | — | The settings you care about. |
 | `remote-updated` | `public_key` | Used by the web app's remote administration page; API keys cannot read it. |
+| `tracking-updated` | `device_id` (sometimes) | `GET /api/tracking`. Sent when a request goes out, an answer or a position arrives, and after changes. |
+| `courses-updated` | — | `GET /api/tracking/courses` |
+| `offline-map-updated` | — | `GET /api/offline-map` (about once a second while downloading). |
 
 A missing, invalid or expired key is refused during the handshake (HTTP `403`). The server
 closes an open socket with code `4401` when its key is revoked, and with code `4408` if your
@@ -755,7 +815,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

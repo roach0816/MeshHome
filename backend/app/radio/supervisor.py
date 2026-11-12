@@ -95,6 +95,9 @@ class RadioSupervisor:
         self._early_acks: dict[str, float] = {}
         # Remote administration: CLI replies (txt_type 1) go here instead of the chat archive.
         self.cli_reply_hook: Callable[[str, str], Awaitable[None]] | None = None
+        # Tracking (services/tracking.py): told after the contact table was read from the radio,
+        # with the radio's id, to record positions from tracked devices' adverts.
+        self.contacts_synced_hook: Callable[[Any], Awaitable[None]] | None = None
         self._bot_tasks: set[asyncio.Task] = set()
         # Message paths from the radio's raw packet log (see services/msg_paths.py).
         self._paths = PathTracker()
@@ -269,10 +272,14 @@ class RadioSupervisor:
                 asyncio.create_task(disconnected.wait(), name="radio-disconnect-watch"),
                 asyncio.create_task(self._reload.wait(), name="radio-reload-watch"),
             ]
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for t in pending:
-                t.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            try:
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                # Also when this session is cancelled (the app stopping): otherwise the loops
+                # outlive it and keep using the radio and its closed ownership connection.
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
             for t in done:
                 if t.get_name() == "radio-reload-watch":
                     self._reload.clear()
@@ -332,6 +339,15 @@ class RadioSupervisor:
             await messaging.sync_channels(s, radio, channels, await app_settings.get_fingerprint_key(s))
             await s.commit()
             self._radio = radio
+        await self._contacts_synced(radio.id)
+
+    async def _contacts_synced(self, radio_id) -> None:
+        if self.contacts_synced_hook is None:
+            return
+        try:
+            await self.contacts_synced_hook(radio_id)
+        except Exception as exc:  # noqa: BLE001 - a nicety; never disturb the contact refresh
+            log.info("could not record tracked positions from adverts: %s", _safe_error(exc))
 
     async def refresh_contacts(self) -> int:
         adapter = self._adapter
@@ -343,6 +359,7 @@ class RadioSupervisor:
             n = await messaging.sync_contacts(s, radio, contacts)
             await self._learn_from_contacts(s, radio.id, adapter)
             await s.commit()
+        await self._contacts_synced(self._radio.id)
         hub.publish("contacts-updated")
         return n
 
@@ -603,6 +620,17 @@ class RadioSupervisor:
         if ticket.via:
             self._repeater_works()
         return result
+
+    async def forget_route(self, public_key: str) -> bool:
+        """Forget the radio's stored route to a contact, so the next request to it floods and the
+        reply teaches the radio a fresh route (tracking: a runner who moved out of that route)."""
+        adapter = self._adapter
+        if adapter is None or not self.connected:
+            return False
+        contact_id = await self._contact_id(public_key)
+        if contact_id is None:
+            return False
+        return await self._set_route(adapter, contact_id, public_key, None)
 
     async def _contact_id(self, public_key: str):
         if self._radio is None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import random
 import time
 from collections import deque
@@ -53,6 +54,53 @@ SIM_CONTACTS = [
     # Shares no position, like many real nodes.
     RadioContact(public_key=_key("hiker"), name="Hiker (sim, no location)", kind=1),
 ]
+SIM_TRACKER_KEY = _key("tracker")
+SIM_TRACKER_SPEED_MPS = 2.8  # a steady trail-running pace, about 6 min/km
+
+
+def _loop_around(lat: float, lon: float, rx_m: float, ry_m: float, n: int = 36) -> list[list[float]]:
+    """A closed loop of points around a centre (east-west and north-south radii in metres)."""
+    dlat = ry_m / 111_320
+    dlon = rx_m / (111_320 * math.cos(math.radians(lat)))
+    pts = [
+        [lat + dlat * math.sin(2 * math.pi * i / n), lon + dlon * math.cos(2 * math.pi * i / n)]
+        for i in range(n)
+    ]
+    return [*pts, pts[0]]
+
+
+# What the simulated tracker runs until a course is uploaded: a fictional ~3 km loop near its advert.
+SIM_TRACKER_LOOP = _loop_around(40.0274, -105.2519, 600, 380)
+_tracker_route: list[list[float]] | None = None
+_tracker_t0 = time.time()
+
+
+def set_sim_tracker_route(points: list[list[float]] | None) -> None:
+    """Run this course instead (services/courses.py: the first visible course)."""
+    global _tracker_route
+    _tracker_route = [list(p[:2]) for p in points] if points and len(points) >= 2 else None
+
+
+def sim_tracker_position(now: float | None = None) -> tuple[float, float]:
+    """Where the simulated runner is: going round the route at a steady pace."""
+    route = _tracker_route or SIM_TRACKER_LOOP
+    legs = []
+    for a, b in zip(route, route[1:], strict=False):
+        dy = (b[0] - a[0]) * 111_320
+        dx = (b[1] - a[1]) * 111_320 * math.cos(math.radians(a[0]))
+        legs.append(math.hypot(dx, dy))
+    total = sum(legs)
+    if total <= 0:
+        return route[0][0], route[0][1]
+    d = (((now if now is not None else time.time()) - _tracker_t0) * SIM_TRACKER_SPEED_MPS) % total
+    for (a, b), leg in zip(zip(route, route[1:], strict=False), legs, strict=False):
+        if d <= leg and leg > 0:
+            f = d / leg
+            return a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f
+        d -= leg
+    return route[-1][0], route[-1][1]
+
+
 SIM_CHANNELS = [
     RadioChannel(slot=0, name="Public", secret=b"sim-public-key!!"),
     RadioChannel(slot=1, name="#home-sim", secret=b"sim-home-secret!"),
@@ -92,6 +140,8 @@ def _initial_state() -> dict:
         "tuning": {"rx_delay": 0.0, "airtime_factor": 1.0},
         "channels": {c.slot: (c.name, c.secret) for c in SIM_CHANNELS},
         "custom_vars": {"gps": "0", "gps_interval": "900"},
+        # Share of telemetry requests the simulated tracker doesn't answer (out of range).
+        "tracker_dropout": 0.1,
         # Per-contact radio state: flags (bit 0 favourite) and routing path.
         "contact_flags": {},
         "contact_paths": {},  # public_key -> (path_len, path_hex)
@@ -166,12 +216,16 @@ class SimulatedRadio(RadioAdapter):
             if c.public_key in st["removed_contacts"]:
                 continue
             path_len, path_hex = st["contact_paths"].get(c.public_key, (-1, ""))
+            heard = now - 600 * (i + 1) - (86400 * 3 if i >= 5 else 0)  # some heard days ago
+            if c.public_key == SIM_TRACKER_KEY:
+                # One advert, heard once: tracking records each advert's position once.
+                heard = st.setdefault("tracker_advert_at", heard)
             out.append(
                 RadioContact(
                     c.public_key,
                     c.name,
                     c.kind,
-                    now - 600 * (i + 1) - (86400 * 3 if i >= 5 else 0),  # some heard days ago
+                    heard,
                     lat=c.lat,
                     lon=c.lon,
                     flags=st["contact_flags"].get(c.public_key, 0),
@@ -428,6 +482,8 @@ class SimulatedRadio(RadioAdapter):
 
     async def remote_send(self, public_key: str, kind: str, arg: str | None = None) -> RemoteTicket:
         self._require()
+        if public_key == SIM_TRACKER_KEY and kind == "telemetry":
+            return self._tracker_telemetry()
         node = self._sim_node(public_key)
         await asyncio.sleep(0.05)
         loop = asyncio.get_running_loop()
@@ -464,6 +520,35 @@ class SimulatedRadio(RadioAdapter):
             self._spawn(self._resolve_later(fut, result, delay))
         return RemoteTicket(
             kind=kind, public_key=public_key, tag=self._rng.randbytes(4).hex(), timeout=6, handle=fut
+        )
+
+    def _tracker_telemetry(self) -> RemoteTicket:
+        """The simulated tracker answers like a companion that shares its location: GPS on the
+        node's own channel, with its battery. Now and then it's out of range and doesn't answer."""
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        st = sim_state()
+        st["tracker_requests"] = (st.get("tracker_requests") or 0) + 1
+        # Tests: the stored route no longer reaches it (it moved), but a flood does.
+        stale = st.get("tracker_route_stale") and SIM_TRACKER_KEY in st["contact_paths"]
+        if not stale and self._rng.random() >= float(st.get("tracker_dropout", 0.1)):
+            lat, lon = sim_tracker_position()
+            result = {
+                "lpp": [
+                    {"channel": 1, "type": "voltage", "value": 3.94},
+                    {
+                        "channel": 1,
+                        "type": "gps",
+                        "value": {"latitude": lat, "longitude": lon, "altitude": 512.0},
+                    },
+                ]
+            }
+            self._spawn(self._resolve_later(fut, result, self._rng.uniform(0.4, 1.2)))
+        return RemoteTicket(
+            kind="telemetry",
+            public_key=SIM_TRACKER_KEY,
+            tag=self._rng.randbytes(4).hex(),
+            timeout=4,
+            handle=fut,
         )
 
     async def remote_wait(self, ticket: RemoteTicket, timeout: float):

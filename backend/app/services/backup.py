@@ -57,8 +57,9 @@ LEGACY_FORMATS = ("meshcore-home-backup",)
 # 2: may hold radio.json. A backup without it is still written as 1, for older MeshHomes.
 FORMAT_VERSION = 2
 # Sign-ins, and the browsers' push subscriptions that belong to them, are not carried over
-# (push_devices: unused since 0.12.0).
-SKIP_TABLES = {"sessions", "web_push_subscriptions", "push_devices"}
+# (push_devices: unused since 0.12.0). Offline map tiles can be downloaded again and would make
+# backups large, so they aren't included either.
+SKIP_TABLES = {"sessions", "web_push_subscriptions", "push_devices", "map_tiles"}
 INSERT_BATCH = 500
 MAX_MEMBER = 2 * 1024**3
 NAME = re.compile(r"^(meshhome|meshcore-home)-[0-9]{8}-[0-9]{6}(-[a-z0-9-]{1,40})?\.(mhb|mchb)$")

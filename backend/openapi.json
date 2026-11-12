@@ -2272,6 +2272,657 @@
         }
       }
     },
+    "/api/offline-map": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Get Offline Map",
+        "operationId": "get_offline_map_api_offline_map_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfflineMapOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Clear",
+        "description": "Delete the saved tiles (the maps go back to the tile server).",
+        "operationId": "clear_api_offline_map_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/offline-map/estimate": {
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Estimate",
+        "description": "How many tiles an area and zoom range is (each is roughly 10–30 kB).",
+        "operationId": "estimate_api_offline_map_estimate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AreaIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/offline-map/download": {
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Download",
+        "description": "Start downloading. Progress arrives as offline-map-updated events (GET /api/offline-map).",
+        "operationId": "download_api_offline_map_download_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/offline-map/cancel": {
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Cancel",
+        "operationId": "cancel_api_offline_map_cancel_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/tracking": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Get Tracking",
+        "description": "Tracked devices with their last position and recent trail, for the tracking map.",
+        "operationId": "get_tracking_api_tracking_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/tracking": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Get Tracking Settings",
+        "operationId": "get_tracking_settings_api_settings_tracking_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Put Tracking Settings",
+        "operationId": "put_tracking_settings_api_settings_tracking_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackingConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/devices": {
+      "post": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Add Device",
+        "description": "Track a contact: it's asked for its position every interval_s seconds (60 to 900).",
+        "operationId": "add_device_api_tracking_devices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackedDeviceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/devices/{device_id}": {
+      "patch": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Update Device",
+        "operationId": "update_device_api_tracking_devices__device_id__patch",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackedDeviceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Remove Device",
+        "description": "Stop tracking it and delete its positions. The contact stays.",
+        "operationId": "remove_device_api_tracking_devices__device_id__delete",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/devices/{device_id}/poll": {
+      "post": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Poll Device",
+        "description": "Ask it for its position now (the answer arrives as a tracking-updated event).",
+        "operationId": "poll_device_api_tracking_devices__device_id__poll_post",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/devices/{device_id}/positions": {
+      "delete": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Clear Positions",
+        "description": "Delete its position history (e.g. before an event), keeping it tracked.",
+        "operationId": "clear_positions_api_tracking_devices__device_id__positions_delete",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/devices/{device_id}/track.gpx": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Export Track",
+        "description": "Its positions over the last `hours` as a GPX track, e.g. to open in a mapping app.",
+        "operationId": "export_track_api_tracking_devices__device_id__track_gpx_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Device Id"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 48,
+              "title": "Hours"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/courses": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "List Courses",
+        "operationId": "list_courses_api_tracking_courses_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CourseOut"
+                  },
+                  "title": "Response List Courses Api Tracking Courses Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Upload Course",
+        "description": "A GPX file (tracks, routes and waypoints) as the raw request body, at most 2 MB. Its name is\n`name`, else the one in the file, else `filename` (without .gpx). A colour in the name or\nfilename (\"Green loop\") picks that colour.",
+        "operationId": "upload_course_api_tracking_courses_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filename"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/courses/{course_id}": {
+      "patch": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Update Course",
+        "operationId": "update_course_api_tracking_courses__course_id__patch",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoursePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Delete Course",
+        "operationId": "delete_course_api_tracking_courses__course_id__delete",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/radio/config": {
       "get": {
         "tags": [
@@ -4667,6 +5318,55 @@
         ],
         "title": "AppsState"
       },
+      "AreaIn": {
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/BoundsIn"
+          },
+          "min_zoom": {
+            "type": "integer",
+            "maximum": 19.0,
+            "minimum": 0.0,
+            "title": "Min Zoom",
+            "default": 10
+          },
+          "max_zoom": {
+            "type": "integer",
+            "maximum": 19.0,
+            "minimum": 0.0,
+            "title": "Max Zoom",
+            "default": 16
+          }
+        },
+        "type": "object",
+        "required": [
+          "bounds"
+        ],
+        "title": "AreaIn"
+      },
+      "BasePosition": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat"
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "lat",
+          "lon"
+        ],
+        "title": "BasePosition"
+      },
       "BehaviorIn": {
         "properties": {
           "auto_add_contacts": {
@@ -4736,6 +5436,42 @@
         },
         "type": "object",
         "title": "BotConfig"
+      },
+      "BoundsIn": {
+        "properties": {
+          "south": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "South"
+          },
+          "west": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "West"
+          },
+          "north": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "North"
+          },
+          "east": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "East"
+          }
+        },
+        "type": "object",
+        "required": [
+          "south",
+          "west",
+          "north",
+          "east"
+        ],
+        "title": "BoundsIn"
       },
       "CatalogEntry": {
         "properties": {
@@ -5990,6 +6726,111 @@
         ],
         "title": "ConversationStats"
       },
+      "CourseOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "color": {
+            "type": "string",
+            "title": "Color"
+          },
+          "visible": {
+            "type": "boolean",
+            "title": "Visible"
+          },
+          "distance_m": {
+            "type": "number",
+            "title": "Distance M"
+          },
+          "segments": {
+            "items": {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "waypoints": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Waypoints"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "color",
+          "visible",
+          "distance_m",
+          "segments",
+          "waypoints",
+          "created_at"
+        ],
+        "title": "CourseOut"
+      },
+      "CoursePatch": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visible"
+          }
+        },
+        "type": "object",
+        "title": "CoursePatch"
+      },
       "CustomVarIn": {
         "properties": {
           "key": {
@@ -6011,6 +6852,165 @@
           "value"
         ],
         "title": "CustomVarIn"
+      },
+      "DeviceIn": {
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Contact Id"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "interval_s": {
+            "type": "integer",
+            "title": "Interval S",
+            "default": 60
+          }
+        },
+        "type": "object",
+        "required": [
+          "contact_id"
+        ],
+        "title": "DeviceIn"
+      },
+      "DevicePatch": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "interval_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval S"
+          },
+          "polling": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polling"
+          },
+          "show": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show"
+          }
+        },
+        "type": "object",
+        "title": "DevicePatch"
+      },
+      "DownloadIn": {
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/BoundsIn"
+          },
+          "min_zoom": {
+            "type": "integer",
+            "maximum": 19.0,
+            "minimum": 0.0,
+            "title": "Min Zoom",
+            "default": 10
+          },
+          "max_zoom": {
+            "type": "integer",
+            "maximum": 19.0,
+            "minimum": 0.0,
+            "title": "Max Zoom",
+            "default": 16
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "usgs-topo",
+              "usgs-imagery",
+              "custom"
+            ],
+            "title": "Source",
+            "default": "usgs-topo"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "attribution": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution"
+          },
+          "permitted": {
+            "type": "boolean",
+            "title": "Permitted",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "bounds"
+        ],
+        "title": "DownloadIn"
       },
       "FavoriteIn": {
         "properties": {
@@ -6347,6 +7347,11 @@
             "type": "boolean",
             "title": "Place Names",
             "default": true
+          },
+          "offline": {
+            "type": "boolean",
+            "title": "Offline",
+            "default": false
           }
         },
         "type": "object",
@@ -6374,6 +7379,18 @@
           },
           "tiles": {
             "$ref": "#/components/schemas/MapConfig"
+          },
+          "offline": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offline"
           }
         },
         "type": "object",
@@ -6878,6 +7895,39 @@
         },
         "type": "object",
         "title": "NotificationConfig"
+      },
+      "OfflineMapOut": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "max_tiles": {
+            "type": "integer",
+            "title": "Max Tiles"
+          },
+          "saved": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Saved"
+          },
+          "job": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Job"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sources",
+          "max_tiles",
+          "saved",
+          "job"
+        ],
+        "title": "OfflineMapOut"
       },
       "OptionOut": {
         "properties": {
@@ -7907,6 +8957,39 @@
         "title": "SignedIn",
         "description": "The owner, just signed in (the session is in the cookies)."
       },
+      "SourceOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "max_zoom": {
+            "type": "integer",
+            "title": "Max Zoom"
+          },
+          "attribution": {
+            "type": "string",
+            "title": "Attribution"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "max_zoom",
+          "attribution",
+          "note"
+        ],
+        "title": "SourceOut"
+      },
       "SubscriptionIn": {
         "properties": {
           "endpoint": {
@@ -8212,6 +9295,291 @@
           "elapsed_ms"
         ],
         "title": "TraceOut"
+      },
+      "TrackPoint": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat"
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          },
+          "alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt M"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "lat",
+          "lon",
+          "source"
+        ],
+        "title": "TrackPoint"
+      },
+      "TrackedDeviceOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "contact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Contact Id"
+          },
+          "public_key": {
+            "type": "string",
+            "title": "Public Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "color": {
+            "type": "string",
+            "title": "Color"
+          },
+          "interval_s": {
+            "type": "integer",
+            "title": "Interval S"
+          },
+          "polling": {
+            "type": "boolean",
+            "title": "Polling"
+          },
+          "show": {
+            "type": "boolean",
+            "title": "Show"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Detail"
+          },
+          "failures": {
+            "type": "integer",
+            "title": "Failures"
+          },
+          "last_poll_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Poll At"
+          },
+          "last_reply_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reply At"
+          },
+          "battery_v": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery V"
+          },
+          "current_radio": {
+            "type": "boolean",
+            "title": "Current Radio"
+          },
+          "is_simulated": {
+            "type": "boolean",
+            "title": "Is Simulated"
+          },
+          "next_poll_in": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Poll In"
+          },
+          "asking": {
+            "type": "boolean",
+            "title": "Asking"
+          },
+          "last_position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trail": {
+            "items": {
+              "$ref": "#/components/schemas/TrackPoint"
+            },
+            "type": "array",
+            "title": "Trail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "contact_id",
+          "public_key",
+          "name",
+          "label",
+          "color",
+          "interval_s",
+          "polling",
+          "show",
+          "status",
+          "status_detail",
+          "failures",
+          "last_poll_at",
+          "last_reply_at",
+          "battery_v",
+          "current_radio",
+          "is_simulated",
+          "next_poll_in",
+          "asking",
+          "last_position",
+          "trail"
+        ],
+        "title": "TrackedDeviceOut"
+      },
+      "TrackingConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "back_off": {
+            "type": "boolean",
+            "title": "Back Off",
+            "default": true
+          },
+          "trail_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Trail Minutes",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "title": "TrackingConfig"
+      },
+      "TrackingOut": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/TrackingConfig"
+          },
+          "radio_connected": {
+            "type": "boolean",
+            "title": "Radio Connected"
+          },
+          "intervals": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Intervals"
+          },
+          "base": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasePosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/TrackedDeviceOut"
+            },
+            "type": "array",
+            "title": "Devices"
+          },
+          "tiles": {
+            "$ref": "#/components/schemas/MapConfig"
+          },
+          "offline": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Offline"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config",
+          "radio_connected",
+          "intervals",
+          "base",
+          "devices",
+          "tiles",
+          "offline"
+        ],
+        "title": "TrackingOut"
       },
       "TuningIn": {
         "properties": {

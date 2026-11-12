@@ -12,6 +12,7 @@ import {
   Globe,
   History,
   KeyRound,
+  LocateFixed,
   Map as MapIcon,
   Palette,
   Pause,
@@ -29,6 +30,8 @@ import { playChime, type SoundSetting } from "../lib/sound";
 import { useUpdateInfo } from "../lib/queries";
 import { BotAppsSection } from "../components/BotApps";
 import { SensorsSection } from "../components/SensorsSection";
+import { TrackingSection } from "../components/TrackingSettings";
+import { OfflineMapSection } from "../components/OfflineMap";
 import { NetworkSection } from "../components/NetworkSettings";
 import { ApiKeysSection } from "../components/ApiKeys";
 import { BackupSection } from "../components/BackupRestore";
@@ -73,7 +76,18 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 
 // ---- layout: categories in a sidebar (wide screens) or a menu to tap into (phones) ------------
 
-type CategoryId = "radio" | "sensors" | "notifications" | "app" | "map" | "bot" | "network" | "software" | "api" | "data";
+type CategoryId =
+  | "radio"
+  | "sensors"
+  | "notifications"
+  | "app"
+  | "map"
+  | "tracking"
+  | "bot"
+  | "network"
+  | "software"
+  | "api"
+  | "data";
 
 interface Category {
   id: CategoryId;
@@ -89,7 +103,8 @@ const CATEGORIES: Category[] = [
   { id: "sensors", label: "Sensors", sub: "Environment and GPS", icon: Thermometer },
   { id: "notifications", label: "Notifications", sub: "Sounds and alerts", icon: Bell },
   { id: "app", label: "App & appearance", sub: "Theme and installing", icon: Palette },
-  { id: "map", label: "Map", sub: "Tiles and place names", icon: MapIcon },
+  { id: "map", label: "Map", sub: "Tiles, offline map, place names", icon: MapIcon },
+  { id: "tracking", label: "Tracking", sub: "GPS trackers on a map", icon: LocateFixed },
   { id: "bot", label: "Bot", sub: "Commands and apps", icon: Bot },
   { id: "network", label: "Network & HTTPS", sub: "Ports and certificate", icon: Globe },
   { id: "software", label: "Software", sub: "Updates and firmware", icon: Download, to: "/settings/updates" },
@@ -242,7 +257,14 @@ function CategoryContent({ id }: { id: CategoryId }) {
     case "sensors":
       return <SensorsSection />;
     case "map":
-      return <MapSection />;
+      return (
+        <>
+          <MapSection />
+          <OfflineMapSection />
+        </>
+      );
+    case "tracking":
+      return <TrackingSection />;
     case "bot":
       return (
         <>
@@ -651,6 +673,7 @@ const OSM_DEFAULT: MapConfig = {
   attribution: "© OpenStreetMap contributors",
   max_zoom: 19,
   place_names: true,
+  offline: false,
 };
 
 function MapSection() {
@@ -735,7 +758,10 @@ function MapSection() {
         <Button variant="primary" onClick={() => save.mutate(form)} disabled={!dirty || save.isPending}>
           Save map settings
         </Button>
-        <Button onClick={() => save.mutate({ ...OSM_DEFAULT, place_names: form.place_names })} disabled={save.isPending}>
+        <Button
+          onClick={() => save.mutate({ ...OSM_DEFAULT, place_names: form.place_names, offline: form.offline })}
+          disabled={save.isPending}
+        >
           Reset to OpenStreetMap
         </Button>
       </div>

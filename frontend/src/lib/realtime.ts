@@ -83,6 +83,18 @@ export function useRealtime(enabled: boolean): SocketState {
             qc.invalidateQueries({ queryKey: ["map"] });
             qc.invalidateQueries({ queryKey: ["device"] });
             break;
+          case "tracking-updated":
+            qc.invalidateQueries({ queryKey: ["tracking"] });
+            break;
+          case "courses-updated":
+            qc.invalidateQueries({ queryKey: ["tracking-courses"] });
+            break;
+          case "offline-map-updated":
+            qc.invalidateQueries({ queryKey: ["offline-map"] });
+            qc.invalidateQueries({ queryKey: ["map-settings"] });
+            qc.invalidateQueries({ queryKey: ["map"] });
+            qc.invalidateQueries({ queryKey: ["tracking"] });
+            break;
           case "remote-updated":
             qc.invalidateQueries({ queryKey: ["remote"] });
             break;
@@ -90,6 +102,7 @@ export function useRealtime(enabled: boolean): SocketState {
             qc.invalidateQueries({ queryKey: ["notification-settings"] });
             qc.invalidateQueries({ queryKey: ["app-install"] });
             qc.invalidateQueries({ queryKey: ["bot-apps"] });
+            qc.invalidateQueries({ queryKey: ["tracking-settings"] });
             break;
           case "radio-status-changed":
             qc.invalidateQueries({ queryKey: ["status"] });

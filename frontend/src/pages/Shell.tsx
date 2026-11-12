@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, Map as MapIcon, MessagesSquare, Settings as SettingsIcon, Users } from "lucide-react";
+import { LocateFixed, LogOut, Map as MapIcon, MessagesSquare, Settings as SettingsIcon, Users } from "lucide-react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
-import { api, type AppInstall, type Me, type Status } from "../lib/api";
+import { api, type AppInstall, type Me, type Status, type TrackingConfig } from "../lib/api";
 import { useSetupStatus, useUpdateInfo } from "../lib/queries";
 import type { SoundSetting } from "../lib/sound";
 import { httpsPage, resyncPush, syncAppInstall, syncUnread, type WebPushStatus } from "../lib/pwa";
@@ -17,12 +17,22 @@ import { Settings, SettingsLayout } from "./Settings";
 
 // Leaflet is only downloaded when the map is opened.
 const NodeMap = lazy(() => import("./NodeMap").then((m) => ({ default: m.NodeMap })));
+const Tracking = lazy(() => import("./Tracking").then((m) => ({ default: m.Tracking })));
 import { IconButton } from "../components/ui";
 import { PageErrorBoundary } from "../components/PageErrorBoundary";
 import { AccountDialog } from "./Account";
 import { NodeSettings } from "./NodeSettings";
 import { RemoteManage } from "./RemoteManage";
 import { Updates } from "./Updates";
+
+/** Tracking (Settings → Tracking): its page is in the navigation only while it's on. */
+export function useTrackingSettings() {
+  return useQuery({
+    queryKey: ["tracking-settings"],
+    queryFn: () => api<TrackingConfig>("/api/settings/tracking"),
+    staleTime: 5 * 60_000,
+  });
+}
 
 export function useStatus() {
   return useQuery({ queryKey: ["status"], queryFn: () => api<Status>("/api/status"), refetchInterval: 15000 });
@@ -103,6 +113,7 @@ export function Shell({ me }: { me: Me }) {
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, [navigate]);
   const status = useStatus();
+  const tracking = useTrackingSettings();
   const { pathname } = useLocation();
   const atRoot = pathname === "/";
   // Animate the sidebar back in on phones only when returning from a page, not on first load.
@@ -131,6 +142,7 @@ export function Shell({ me }: { me: Me }) {
             <NavItem to="/" label="Chats" icon={MessagesSquare} />
             <NavItem to="/contacts" label="Contacts" icon={Users} />
             <NavItem to="/map" label="Map" icon={MapIcon} />
+            {tracking.data?.enabled && <NavItem to="/tracking" label="Tracking" icon={LocateFixed} />}
             <NavItem to="/settings" label="Settings" icon={SettingsIcon} />
           </nav>
         </header>
@@ -173,6 +185,14 @@ export function Shell({ me }: { me: Me }) {
             element={
               <Suspense fallback={<p className="p-6 text-sm text-muted">Loading map…</p>}>
                 <NodeMap />
+              </Suspense>
+            }
+          />
+          <Route
+            path="tracking"
+            element={
+              <Suspense fallback={<p className="p-6 text-sm text-muted">Loading map…</p>}>
+                <Tracking />
               </Suspense>
             }
           />

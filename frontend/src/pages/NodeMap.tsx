@@ -7,6 +7,7 @@ import { ChevronLeft, Maximize } from "lucide-react";
 import { api, type MapData, type MapNode } from "../lib/api";
 import { Button } from "../components/ui";
 import { cx, formatDateTime } from "../lib/util";
+import { baseLayer, baseLayerKey } from "../lib/tiles";
 
 // MeshCore advert types. Colours are chosen to stay distinguishable on light and dark tiles.
 export const KINDS: Record<number, { label: string; color: string; glyph: string }> = {
@@ -27,10 +28,6 @@ export const STALE_SECONDS = 7 * 86400;
 /** Seconds since a node's last advert; Infinity if it has never been heard. */
 export function heardAgo(lastAdvertAt: string | null): number {
   return lastAdvertAt ? Date.now() / 1000 - new Date(lastAdvertAt).getTime() / 1000 : Infinity;
-}
-
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
 export function markerIcon(color: string, glyph: string, opts: { gateway?: boolean; stale?: boolean } = {}) {
@@ -121,22 +118,15 @@ export function NodeMap() {
     };
   }, []);
 
-  // Tile source (configurable in Settings → Map).
+  // Tile source (configurable in Settings → Map), or the map saved for use offline.
   const cfg = data.data?.tiles;
+  const tileKey = baseLayerKey(cfg, data.data?.offline);
   useEffect(() => {
     const m = map.current;
     if (!m || !cfg) return;
     tiles.current?.remove();
-    const isOsm = cfg.tile_url.includes("openstreetmap.org");
-    tiles.current = L.tileLayer(cfg.tile_url, {
-      maxZoom: cfg.max_zoom,
-      attribution: isOsm
-        ? '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-        : escapeHtml(cfg.attribution),
-      // The app sends no Referer by default; tile servers (OSM's policy) expect one, so send the origin only.
-      referrerPolicy: "strict-origin-when-cross-origin",
-    }).addTo(m);
-  }, [cfg?.tile_url, cfg?.attribution, cfg?.max_zoom]);
+    tiles.current = baseLayer(cfg, data.data?.offline).addTo(m);
+  }, [tileKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fitAll = () => {
     const m = map.current;

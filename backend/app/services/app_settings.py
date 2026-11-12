@@ -49,6 +49,9 @@ class MapConfig(BaseModel):
     # Name the place at a node's advertised position ("Springfield, Illinois, US") in its details,
     # looked up by this server from OpenStreetMap Nominatim (app/services/places.py).
     place_names: bool = True
+    # Use the tiles saved on this server (Settings → Map → Offline map) instead of the tile server,
+    # e.g. at an event with no internet. Places outside the saved area show no map.
+    offline: bool = False
 
     @field_validator("tile_url")
     @classmethod
@@ -134,7 +137,19 @@ class SensorsConfig(BaseModel):
     units: Literal["metric", "imperial"] = "metric"
 
 
+class TrackingConfig(BaseModel):
+    # Tracking (services/tracking.py): ask chosen contacts, such as GPS trackers, for their
+    # position on a schedule and show them on their own map. Off until turned on.
+    enabled: bool = False
+    # After 3 unanswered polls in a row, ask less often (up to every 5 minutes) until it answers.
+    # Turn off on your own small mesh (an event) to keep asking at the device's interval.
+    back_off: bool = True
+    # How much of each device's recent path the map draws behind it.
+    trail_minutes: int = Field(default=30, ge=0, le=1440)
+
+
 SENSORS_KEY = "sensors"
+TRACKING_KEY = "tracking"
 WEATHER_KEY = "weather"
 RADIO_KEY = "radio"
 MAP_KEY = "map"
@@ -243,6 +258,15 @@ async def get_sensors_config(db: AsyncSession) -> SensorsConfig:
 
 async def put_sensors_config(db: AsyncSession, cfg: SensorsConfig) -> None:
     await _put(db, SENSORS_KEY, cfg.model_dump())
+
+
+async def get_tracking_config(db: AsyncSession) -> TrackingConfig:
+    raw = await _get(db, TRACKING_KEY)
+    return TrackingConfig.model_validate(raw) if raw else TrackingConfig()
+
+
+async def put_tracking_config(db: AsyncSession, cfg: TrackingConfig) -> None:
+    await _put(db, TRACKING_KEY, cfg.model_dump())
 
 
 async def get_installation(db: AsyncSession) -> InstallationConfig:

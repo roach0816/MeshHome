@@ -21,12 +21,14 @@ from app.api import (
     inbox,
     meta,
     node_map,
+    offline_map,
     push_receiver,
     radio,
     radio_config,
     remote,
     sensors,
     system,
+    tracking,
 )
 from app.api import (
     web_push as web_push_api,
@@ -35,9 +37,11 @@ from app.api.deps import bearer_token, load_api_key, load_session, session_cooki
 from app.config import APP_VERSION, get_settings
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import app_settings, diagnostics, updates, web_push
+from app.services import app_settings, courses, diagnostics, updates, web_push
 from app.services import bot_apps as bot_apps_service
+from app.services import offline_map as offline_map_service
 from app.services import sensors as sensors_service
+from app.services import tracking as tracking_service
 
 log = logging.getLogger("meshhome")
 
@@ -65,6 +69,8 @@ async def lifespan(app: FastAPI):
             token,
             banner,
         )
+    await courses.sync_sim_route()
+    tracking_service.manager.start()  # before the radio, so it hears the first contact sync
     supervisor.start()
     web_push.start()
     sensors_service.manager.start()
@@ -76,6 +82,8 @@ async def lifespan(app: FastAPI):
         update_task.cancel()
         diag_task.cancel()
         await sensors_service.manager.stop()
+        await tracking_service.manager.stop()
+        await offline_map_service.manager.stop()
         await supervisor.stop()
         await web_push.stop()
         hub.close_all()
@@ -143,6 +151,8 @@ app.include_router(inbox.router)
 app.include_router(contacts.router)
 app.include_router(radio.router)
 app.include_router(node_map.router)
+app.include_router(offline_map.router)
+app.include_router(tracking.router)
 app.include_router(radio_config.router)
 app.include_router(system.router)
 app.include_router(api_keys.router)

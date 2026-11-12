@@ -12,7 +12,7 @@ from app.api.deps import AuthContext, require_auth
 from app.db import get_db
 from app.models import AuditEvent, Contact, Conversation, Radio
 from app.radio.supervisor import supervisor
-from app.services import app_settings, places
+from app.services import app_settings, offline_map, places
 
 router = APIRouter(prefix="/api", tags=["map"])
 
@@ -44,6 +44,9 @@ class MapData(BaseModel):
     nodes: list[MapNode]
     without_location: int
     tiles: app_settings.MapConfig
+    # The saved offline map (services/offline_map.py), used when tiles.offline is on: tiles (0 when
+    # none), max_zoom, attribution, bounds.
+    offline: dict | None = None
 
 
 @router.get("/map", response_model=MapData)
@@ -89,8 +92,14 @@ async def map_data(ctx: AuthContext = Depends(require_auth), db: AsyncSession = 
                     live=r.id == live_id,
                 )
             )
+    tiles = await app_settings.get_map_config(db)
+    await db.rollback()
     return MapData(
-        gateways=gateways, nodes=nodes, without_location=without, tiles=await app_settings.get_map_config(db)
+        gateways=gateways,
+        nodes=nodes,
+        without_location=without,
+        tiles=tiles,
+        offline=await offline_map.manager.summary(),
     )
 
 

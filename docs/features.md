@@ -206,7 +206,7 @@ Shows the companions, repeaters, room servers and sensors heard by the gateway a
 advertise (sharing a position is optional in MeshCore), filterable by type and by when each node was
 last heard. Built with [Leaflet](https://leafletjs.com) and [OpenStreetMap](https://www.openstreetmap.org)
 tiles by default; see [Configuration](configuration.md#map-tiles-and-privacy) for privacy and
-self-hosted tiles.
+self-hosted tiles, and [Offline map](#offline-map) to save an area for use without internet.
 
 ### Node details
 
@@ -215,6 +215,47 @@ contacts (a short key prefix can match more than one), each with its type, publi
 last heard, its position and the town there, and its distance from your radio, plus **Remote
 manage** or **Send message**. The town is looked up from OpenStreetMap Nominatim; turn that off in
 **Settings → Map → Place names**.
+
+## Tracking
+
+Follow GPS trackers, such as a tracker carried by whoever is running at a relay race, on a map of
+their own. Off until it's turned on in **Settings → Tracking**; then **Tracking** appears in the
+navigation.
+
+- **How positions arrive:** MeshCore companions don't send their position on a timer (an advert only
+  goes out when someone asks for one), so MeshHome asks. On each tracker's interval (1, 2, 5, 10 or
+  15 minutes) it sends a telemetry request, and the tracker answers with its latest GPS fix,
+  altitude and battery voltage. Positions in its adverts are recorded too. Each request is two short
+  packets, repeated by each repeater on the way.
+- **Moving between repeaters:** when a request on the stored route goes unanswered, MeshHome forgets
+  that route and asks again by flood, and the reply teaches the radio the new route. So a runner who
+  moves from your base's coverage into a repeater's costs at most one missed position.
+- **Out of range:** with *Ask less often when a tracker doesn't answer* on (the default), a tracker
+  that misses 3 requests in a row is asked less often, up to every 5 minutes, until it answers again.
+  Turn it off at an event on your own mesh to keep asking at the tracker's interval.
+- **The map:** each shown tracker's position with how long ago it was taken, its recent trail
+  (Settings → Tracking → *Trail on the map*), your base, and the courses. A card per tracker along
+  the bottom shows its name, how fresh its position is and its battery; tap it to centre the map.
+  From the list: show or hide each tracker, ask for a position now, give it a label (who's carrying
+  it, such as "Leg 7 – Sam"), change its interval or colour, pause it, export its track as GPX, or
+  clear its history. Positions are kept for 30 days.
+- **Courses:** upload GPX files (tracks, routes and waypoints) to draw them. A colour in the name
+  ("Green loop") colours the line. The simulated radio's tracker runs the first visible course, so
+  you can rehearse at home.
+- **Setting up a tracker:** in the MeshCore app on the tracker, turn GPS on and set **Telemetry →
+  Location** to allow this node (flag it in the tracker's contacts) or everyone. The tracker also
+  needs your node in its contacts, to read the request. The tracker's status says when it answered
+  without a position.
+
+### Offline map
+
+For a venue without internet: your phone can still reach MeshHome over its Wi-Fi, but not a tile
+server. In **Settings → Map → Offline map**, download the area beforehand (around your courses or
+your base, or by coordinates), and the maps use the saved tiles. USGS topographic maps and imagery
+(public domain, United States only) are offered, or another tile server whose terms allow saving
+tiles; OpenStreetMap's own servers don't allow bulk downloads and are refused. Up to 20,000 tiles;
+zoom 16 shows trails, and the maps zoom in further by enlarging the saved tiles. The tiles are
+stored in the database and aren't included in backups.
 
 ## Sensors on the Pi
 
