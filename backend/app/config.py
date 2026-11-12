@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-APP_VERSION = "1.0.18"
+APP_VERSION = "1.0.19"
 # The API contract clients depend on (GET /api/meta). Changes stay additive; this only goes up
 # for a change that existing clients can't handle, which should be (almost) never.
 API_VERSION = 1
@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # MeshCore's suggested radio presets (refreshed daily; a bundled copy is used offline). Empty: bundled only.
     radio_presets_url: str = Field(default="https://api.meshcore.nz/api/v1/config", alias="RADIO_PRESETS_URL")
     update_api_url: str = Field(default="https://api.github.com", alias="UPDATE_API_URL")
+    # When the API refuses (its limit is 60 requests an hour per IP address), the latest release
+    # is read from this website instead (GitHub's pages, not its API). Empty: API only.
+    update_web_url: str = Field(default="https://github.com", alias="UPDATE_WEB_URL")
     # Where MeshCore companion firmware is released (GitHub "owner/repo"), for the radio update check.
     firmware_repo: str = Field(default="meshcore-dev/MeshCore", alias="FIRMWARE_REPO")
     # The bot app catalog (Settings → Bot → Apps): catalog.json, with each app's recipe beside it.

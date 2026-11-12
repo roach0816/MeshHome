@@ -121,3 +121,69 @@ async def test_installed_notes_fetched_separately_when_update_available(client, 
     info = (await client.get("/api/system/update")).json()
     assert info["latest"]["version"] == fake_release
     assert info["installed"]["notes"] == "Installed notes"
+
+
+def _github(api_status=403, latest_tag="v9.8.7", sums=True, web_ok=True):
+    """A stand-in for api.github.com (refusing, as when its hourly limit is used up) and
+    github.com (the latest-release redirect and the release's SHA256SUMS)."""
+    import httpx
+
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(f"{req.url.host}{req.url.path}")
+        if req.url.host == "api.github.com":
+            return httpx.Response(api_status, json={"message": "API rate limit exceeded"})
+        if not web_ok:
+            raise httpx.ConnectError("no route to host")
+        repo = "/roach0816/MeshHome/releases"
+        if req.url.path == f"{repo}/latest":
+            return httpx.Response(302, headers={"location": f"https://github.com{repo}/tag/{latest_tag}"})
+        if req.url.path.endswith("/SHA256SUMS") and sums and f"/{latest_tag}/" in req.url.path:
+            v = latest_tag.lstrip("v")
+            return httpx.Response(200, text=f"{'a' * 64}  meshhome-{v}.tar.gz\n{'b' * 64}  install.sh\n")
+        return httpx.Response(404, text="Not Found")
+
+    return httpx.MockTransport(handler), seen
+
+
+async def test_falls_back_to_the_website_when_the_api_refuses(monkeypatch):
+    transport, seen = _github()
+    monkeypatch.setattr(updates.UpdateChecker, "transport", transport)
+    c = updates.UpdateChecker()
+    info = await c._fetch()
+    assert (info.version, info.has_native_package, info.notes) == ("9.8.7", True, "")
+    assert info.url == "https://github.com/roach0816/MeshHome/releases/tag/v9.8.7"
+    assert seen[0].startswith("api.github.com")
+    # A specific release (the installed one's page) the same way; one that doesn't exist fails.
+    assert (await c._fetch("tags/v9.8.7")).version == "9.8.7"
+    import httpx
+
+    with pytest.raises(httpx.HTTPStatusError):  # the API's reason is the one reported
+        await c._fetch("tags/v1.2.3")
+
+
+async def test_release_without_package_yet(monkeypatch):
+    transport, _ = _github(sums=False)
+    monkeypatch.setattr(updates.UpdateChecker, "transport", transport)
+    info = await updates.UpdateChecker()._fetch()
+    assert info.version == "9.8.7" and info.has_native_package is False
+
+
+async def test_reports_the_api_error_when_the_website_fails_too(monkeypatch):
+    transport, _ = _github(web_ok=False)
+    monkeypatch.setattr(updates.UpdateChecker, "transport", transport)
+    c = updates.UpdateChecker()
+    await c.check(force=True)
+    assert c.summary()["error"].startswith("HTTPStatusError") and "403" in c.summary()["error"]
+
+
+async def test_no_website_fallback_when_turned_off(monkeypatch):
+    transport, seen = _github()
+    monkeypatch.setattr(updates.UpdateChecker, "transport", transport)
+    monkeypatch.setattr(get_settings(), "update_web_url", "")
+    import httpx
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await updates.UpdateChecker()._fetch()
+    assert all(s.startswith("api.github.com") for s in seen)

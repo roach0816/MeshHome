@@ -641,7 +641,19 @@ latest_version() {  # parsed with sed so it works before python3 is installed
   tag=$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
     "$API_URL/repos/$REPO/releases/latest" 2>>"$LOG_FILE" |
     sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([0-9][0-9.]*\)".*/\1/p' | head -n1) || true
+  if ! valid_version "$tag" && [[ -z $DOWNLOAD_BASE ]]; then
+    # The API refused (it allows 60 requests an hour per IP address, shared by everything on
+    # the network) or is blocked. github.com's latest-release page redirects to the newest tag.
+    log "release lookup through $API_URL failed; asking github.com"
+    tag=$(curl -fsS -o /dev/null --max-time 20 -w '%{redirect_url}' \
+      "https://github.com/$REPO/releases/latest" 2>>"$LOG_FILE" |
+      sed -n 's#.*/releases/tag/v\{0,1\}\([0-9][0-9.]*\)$#\1#p') || true
+  fi
   valid_version "$tag" && printf '%s' "$tag"
+}
+
+reach_check_url() {  # where packages come from: the mirror if one is set, else github.com
+  if [[ -n $DOWNLOAD_BASE ]]; then printf '%s' "$DOWNLOAD_BASE"; else printf '%s' "https://github.com"; fi
 }
 
 missing_packages() {  # missing_packages PKG... — prints those not installed
@@ -718,8 +730,11 @@ preflight() {
       run "Installing curl" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates
     fi
     activity "Checking internet access to GitHub"
-    curl -fsS --max-time 15 -o /dev/null "$API_URL" >>"$LOG_FILE" 2>&1 ||
-      die "Cannot reach $API_URL" "Check the Pi's internet connection and DNS."
+    # Any HTTP answer will do: this checks the network, not the API (whose hourly limit, when
+    # used up by other devices on the network, would look like no internet at all).
+    local reach; reach=$(reach_check_url)
+    curl -sS --max-time 15 -o /dev/null "$reach" >>"$LOG_FILE" 2>&1 ||
+      die "Cannot reach $reach" "Check the Pi's internet connection and DNS."
     ok "Internet access to GitHub"
   fi
   local cur; cur=$(installed_version || true)
@@ -740,7 +755,8 @@ choose_version() {
       valid_version "$TARGET_VERSION" || die "Invalid version: $WANT_VERSION"
     else
       activity "Looking up the latest release"
-      TARGET_VERSION=$(latest_version) || die "Could not look up the latest release of $REPO"
+      TARGET_VERSION=$(latest_version) || die "Could not look up the latest release of $REPO" \
+        "GitHub may be limiting requests from this network. Try again in an hour, or name the release with --version X.Y.Z."
     fi
     step_note "v$TARGET_VERSION"
     ok "Release: v$TARGET_VERSION  ${D}https://github.com/$REPO/releases/tag/v$TARGET_VERSION${N}"

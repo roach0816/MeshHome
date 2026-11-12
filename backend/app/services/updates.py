@@ -61,16 +61,36 @@ class UpdateChecker:
         self._error: str | None = None
         self._lock = asyncio.Lock()
 
+    # Tests swap in an httpx.MockTransport.
+    transport: httpx.AsyncBaseTransport | None = None
+
+    def _client(self, **kw: Any) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=10, transport=self.transport, headers={"User-Agent": f"MeshHome/{APP_VERSION}"}, **kw
+        )
+
     async def _fetch(self, which: str = "latest") -> ReleaseInfo:
-        """which: "latest", or "tags/vX.Y.Z" for a specific release."""
+        """which: "latest", or "tags/vX.Y.Z" for a specific release.
+
+        From the GitHub API, which allows 60 requests an hour per IP address, shared by every
+        device on the network. When it refuses (or is blocked), the release is read from the
+        github.com pages instead, without release notes."""
+        try:
+            return await self._fetch_api(which)
+        except Exception as exc:
+            if not get_settings().update_web_url:
+                raise
+            try:
+                return await self._fetch_web(which)
+            except Exception as web_exc:  # noqa: BLE001 - report the API's reason, the usual one
+                log.info("release lookup on the GitHub website failed too: %s", web_exc)
+                raise exc from None
+
+    async def _fetch_api(self, which: str) -> ReleaseInfo:
         s = get_settings()
         url = f"{s.update_api_url.rstrip('/')}/repos/{s.update_repo}/releases/{which}"
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=10,
-            headers={"Accept": "application/vnd.github+json", "User-Agent": f"MeshHome/{APP_VERSION}"},
-        ) as client:
-            r = await client.get(url)
+        async with self._client(follow_redirects=True) as client:
+            r = await client.get(url, headers={"Accept": "application/vnd.github+json"})
             r.raise_for_status()
             data = r.json()
         tag = str(data.get("tag_name") or "")
@@ -87,6 +107,41 @@ class UpdateChecker:
                 {f"meshhome-{version}.tar.gz", f"meshcore-home-{version}.tar.gz"} & assets
             )
             and "SHA256SUMS" in assets,
+        )
+
+    async def _fetch_web(self, which: str) -> ReleaseInfo:
+        """The latest release from github.com's redirect to its tag, and whether it has a native
+        package from its SHA256SUMS file. Neither counts against the API's limit."""
+        s = get_settings()
+        base = f"{s.update_web_url.rstrip('/')}/{s.update_repo}/releases"
+        async with self._client() as client:
+            if which == "latest":
+                r = await client.get(f"{base}/latest")
+                m = re.search(r"/releases/tag/(v?\d+\.\d+\.\d+)$", r.headers.get("location", ""))
+                if not r.is_redirect or not m:
+                    raise ValueError(f"no latest release at {base} (HTTP {r.status_code})")
+                tag = m[1]
+            else:
+                tag = which.removeprefix("tags/")
+                if not parse_version(tag):
+                    raise ValueError(f"unexpected release tag {tag!r}")
+            version = tag.lstrip("v")
+            r = await client.get(f"{base}/download/{tag}/SHA256SUMS", follow_redirects=True)
+            if r.status_code == 404 and which != "latest":
+                raise ValueError(f"no release {tag}")
+            names = (
+                {line.split()[-1].lstrip("*") for line in r.text.splitlines() if len(line.split()) == 2}
+                if r.status_code == 200
+                else set()
+            )
+        return ReleaseInfo(
+            version=version,
+            url=f"{base}/tag/{tag}",
+            notes="",
+            published_at=None,
+            has_native_package=bool(
+                {f"meshhome-{version}.tar.gz", f"meshcore-home-{version}.tar.gz"} & names
+            ),
         )
 
     async def check(self, force: bool = False) -> None:

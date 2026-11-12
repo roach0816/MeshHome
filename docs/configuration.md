@@ -18,6 +18,7 @@ the repository or the image. Environment variables only cover deployment plumbin
 | `MESHHOME_INSTALL_KIND` | `native` enables in-place upgrades and system settings from the UI (set by the installer). The older name `MESHCORE_INSTALL_KIND` also works. | `container` |
 | `MESHHOME_STATE_DIR` | Writable state directory for a native install. The older name `MESHCORE_STATE_DIR` also works. | — |
 | `UPDATE_REPO` | GitHub `owner/repo` checked for new releases; empty disables update checks | this repo |
+| `UPDATE_WEB_URL` | Where the latest release is read when the GitHub API refuses (it allows 60 requests an hour per IP address); empty uses the API only | `https://github.com` |
 | `RELEASE_NOTES_URL` | Where the version number links (`{version}` is substituted); empty for no link | this repo's GitHub releases |
 | `RADIO_PRESETS_URL` | Where MeshCore's region presets are fetched; empty uses the built-in list only | MeshCore's server |
 | `FIRMWARE_REPO` | GitHub `owner/repo` of MeshCore companion firmware releases, for the firmware check | `meshcore-dev/MeshCore` |
