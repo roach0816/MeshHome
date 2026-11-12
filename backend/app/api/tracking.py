@@ -128,6 +128,8 @@ class BasePosition(BaseModel):
 
 class TrackingOut(BaseModel):
     config: app_settings.TrackingConfig
+    # The app-wide units setting (GET/PUT /api/settings/units); values here are always metric.
+    units: str = "metric"
     radio_connected: bool
     intervals: list[int]
     base: BasePosition | None
@@ -400,9 +402,11 @@ async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSessio
         if loc.get("lat") is not None and loc.get("lon") is not None:
             base = BasePosition(name=r.name, lat=loc["lat"], lon=loc["lon"])
     tiles = await app_settings.get_map_config(db)
+    units = (await app_settings.get_units(db)).units
     await db.rollback()
     return TrackingOut(
         config=cfg,
+        units=units,
         radio_connected=supervisor.connected,
         intervals=list(tracking.INTERVALS),
         base=base,
@@ -427,6 +431,26 @@ async def put_tracking_settings(
     db.add(AuditEvent(kind="settings.tracking", detail=body.model_dump()))
     await db.commit()
     tracking.manager.wake()
+    hub.publish("settings-updated")
+    hub.publish("tracking-updated")
+    return body
+
+
+@router.get("/settings/units", response_model=app_settings.UnitsConfig)
+async def get_units_setting(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
+    """How measurements are shown everywhere (radio sensors, the /env bot reply, tracking)."""
+    return await app_settings.get_units(db)
+
+
+@router.put("/settings/units", response_model=app_settings.UnitsConfig)
+async def put_units_setting(
+    body: app_settings.UnitsConfig,
+    ctx: AuthContext = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+):
+    await app_settings.put_units(db, body)
+    db.add(AuditEvent(kind="settings.units", detail=body.model_dump()))
+    await db.commit()
     hub.publish("settings-updated")
     hub.publish("tracking-updated")
     return body

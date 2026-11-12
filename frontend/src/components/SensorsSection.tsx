@@ -394,7 +394,7 @@ export function SensorsSection() {
       {form && (
         <Section title="Sensor settings" description="Which sensors MeshHome reads, and what it does with the GPS.">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Units" htmlFor="sensor-units" hint="For readings here and the /env bot reply.">
+            <Field label="Units" htmlFor="sensor-units" hint="For all of MeshHome: readings here, the /env bot reply and tracking.">
               <Select
                 id="sensor-units"
                 value={form.units}

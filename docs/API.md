@@ -592,13 +592,19 @@ off (`place_names: false` in the map settings), nothing is looked up and `enable
 
 Positions of chosen contacts, such as GPS trackers, which MeshHome asks for on a schedule (see
 [features](features.md#tracking)). Tracking is off until it's turned on in the web interface
-(`GET /api/settings/tracking`: `{"enabled", "back_off", "trail_minutes", "units"}`, with `units`
-`metric` or `imperial` for the tracking page; values in the API are always metric); while it's off, adding
+(`GET /api/settings/tracking`: `{"enabled", "back_off", "trail_minutes"}`); while it's off, adding
 a device or asking one returns `409`.
+
+#### `GET`/`PUT /api/settings/units` — read / write (`PUT`: signed-in session only)
+
+`{"units": "metric"}` or `"imperial"`: how measurements are shown across the app (tracking, the
+radio's sensors, the `/env` bot reply). Values in the API are always metric. Saving the sensors'
+settings (`PUT /api/settings/sensors`) saves its `units` here too; before 1.0.20 that was the only
+place, and an existing choice carries over.
 
 #### `GET /api/tracking` — read
 
-Everything for the tracking map: `config`, `radio_connected`, `intervals` (the allowed
+Everything for the tracking map: `config`, `units` (the units setting above), `radio_connected`, `intervals` (the allowed
 `interval_s` values: 60, 120, 300, 600, 900), `base` (this radio's own position, if set), `tiles`
 (the map settings) and `offline` (the saved offline map), and `devices`. Each device has its
 contact (`contact_id`, `public_key`, `name`), `label` (shown instead of the name when set),
@@ -683,7 +689,7 @@ the map settings.
 
 `/api/auth/*` (except `GET /api/auth/me`, which returns `{"username", "home_name"}`),
 `/api/api-keys`, `/api/setup`, `POST`/`PUT` under `/api/system/*`, `PUT /api/settings/radio`,
-`PUT /api/settings/bot`, `PUT /api/settings/tracking`, `POST /api/offline-map/download`, `POST /api/offline-map/cancel`, `DELETE /api/offline-map`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
+`PUT /api/settings/bot`, `PUT /api/settings/tracking`, `PUT /api/settings/units`, `POST /api/offline-map/download`, `POST /api/offline-map/cancel`, `DELETE /api/offline-map`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
 `/api/radio/simulate-incoming`, `DELETE /api/simulated-data`, `POST /api/system/radio-hat`, and every `PUT`/`POST`/`DELETE`
 under `/api/radio/config`, `/api/radio/channels`, `/api/radio/custom-vars` and `/api/radio/actions`,
 everything under `/api/remote` (remote administration of repeaters and room servers), and

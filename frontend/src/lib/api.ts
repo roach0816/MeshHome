@@ -746,6 +746,10 @@ export interface TrackingConfig {
   enabled: boolean;
   back_off: boolean;
   trail_minutes: number;
+}
+
+/** The app-wide units setting: radio sensors, the /env bot reply and tracking. */
+export interface UnitsConfig {
   units: Units;
 }
 
@@ -847,6 +851,7 @@ export interface OfflineSaved {
 
 export interface TrackingData {
   config: TrackingConfig;
+  units: Units;
   radio_connected: boolean;
   intervals: number[];
   base: { name: string; lat: number; lon: number } | null;

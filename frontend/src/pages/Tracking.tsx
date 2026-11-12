@@ -195,7 +195,7 @@ export function Tracking() {
   const fitted = useRef(false);
 
   const d = data.data;
-  const units: Units = d?.config.units ?? "metric";
+  const units: Units = d?.units ?? "metric";
   const u = useMemo(() => unitsFor(units), [units]);
   const devices = d?.devices ?? [];
   const shown = useMemo(() => devices.filter((x) => x.show), [devices]);

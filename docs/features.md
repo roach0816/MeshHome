@@ -250,8 +250,9 @@ navigation.
   line counts as off course. Pace is the distance covered along the course over the last ten
   minutes (with no course, the straight-line distance between fixes, which reads slower on twisty
   trail), and the ETA assumes that pace for the rest of the course.
-- **Units:** metric (km, m, °C, hPa) or imperial (mi, ft, °F, inHg) in **Settings → Tracking**, for
-  course distances, pace (per km or mile), altitude, temperature and pressure.
+- **Units:** metric (km, m, °C, hPa) or imperial (mi, ft, °F, inHg), for course distances, pace (per
+  km or mile), altitude, temperature and pressure. One setting for all of MeshHome: change it in
+  **Settings → Tracking** or with the radio's sensors; the `/env` bot reply uses it too.
 - **Battery:** shown as an approximate percentage worked out from the voltage, in red at 20 % or
   less. A tracker that has ever reported over 4.25 V is taken to have a high-voltage cell (full at
   about 4.35 V, like the SenseCAP MeshTracker X1's), which reads lower for the same voltage.

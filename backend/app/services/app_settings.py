@@ -133,7 +133,14 @@ class SensorsConfig(BaseModel):
     # Keep the radio's advertised location up to date from the GPS, when it has moved this far.
     update_location: bool = False
     location_min_move_m: int = Field(default=100, ge=20, le=10000)
-    # How readings are shown (Settings → Sensors and the /env bot reply). Stored values stay metric.
+    # The app-wide units setting (UnitsConfig), kept here too for clients that read it from the
+    # sensors' settings; saving the sensors' settings saves it.
+    units: Literal["metric", "imperial"] = "metric"
+
+
+class UnitsConfig(BaseModel):
+    # How measurements are shown everywhere: radio sensors, the /env bot reply and tracking.
+    # Stored values are always metric, and so is the API.
     units: Literal["metric", "imperial"] = "metric"
 
 
@@ -146,12 +153,11 @@ class TrackingConfig(BaseModel):
     back_off: bool = True
     # How much of each device's recent path the map draws behind it.
     trail_minutes: int = Field(default=30, ge=0, le=1440)
-    # Distances, pace, altitude, temperature and pressure on the tracking page (stored in metric).
-    units: Literal["metric", "imperial"] = "metric"
 
 
 SENSORS_KEY = "sensors"
 TRACKING_KEY = "tracking"
+UNITS_KEY = "units"
 WEATHER_KEY = "weather"
 RADIO_KEY = "radio"
 MAP_KEY = "map"
@@ -253,13 +259,29 @@ async def put_weather_config(db: AsyncSession, cfg: WeatherConfig) -> None:
     await _put(db, WEATHER_KEY, cfg.model_dump())
 
 
+async def get_units(db: AsyncSession) -> UnitsConfig:
+    raw = await _get(db, UNITS_KEY)
+    if raw:
+        return UnitsConfig.model_validate(raw)
+    # Before 1.0.20 the choice was the sensors' own; it carries over.
+    sensors = await _get(db, SENSORS_KEY)
+    return UnitsConfig(units=SensorsConfig.model_validate(sensors).units if sensors else "metric")
+
+
+async def put_units(db: AsyncSession, cfg: UnitsConfig) -> None:
+    await _put(db, UNITS_KEY, cfg.model_dump())
+
+
 async def get_sensors_config(db: AsyncSession) -> SensorsConfig:
     raw = await _get(db, SENSORS_KEY)
-    return SensorsConfig.model_validate(raw) if raw else SensorsConfig()
+    cfg = SensorsConfig.model_validate(raw) if raw else SensorsConfig()
+    cfg.units = (await get_units(db)).units
+    return cfg
 
 
 async def put_sensors_config(db: AsyncSession, cfg: SensorsConfig) -> None:
     await _put(db, SENSORS_KEY, cfg.model_dump())
+    await put_units(db, UnitsConfig(units=cfg.units))
 
 
 async def get_tracking_config(db: AsyncSession) -> TrackingConfig:

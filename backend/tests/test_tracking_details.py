@@ -9,7 +9,7 @@ import pytest
 from app import db
 from app.models import TrackedDevice, TrackPosition, utcnow
 from app.radio import packets
-from app.services import progress, tracking
+from app.services import app_settings, progress, tracking
 from app.services.msg_paths import PathTracker
 from tests.conftest import csrf, do_setup
 from tests.test_api import _connected_conversations
@@ -219,14 +219,25 @@ async def test_progress_pace_and_eta_in_the_api(client, sim_tracker):  # noqa: F
 
 
 async def test_units_setting(client):
+    """One units setting for the whole app; before 1.0.20 it was the sensors' own, and carries over."""
     await do_setup(client)
-    assert (await client.get("/api/settings/tracking")).json()["units"] == "metric"
-    r = await client.put(
-        "/api/settings/tracking", headers=csrf(client), json={"enabled": True, "units": "imperial"}
-    )
-    assert r.status_code == 200 and r.json()["units"] == "imperial"
-    assert (await client.get("/api/tracking")).json()["config"]["units"] == "imperial"
-    r = await client.put(
-        "/api/settings/tracking", headers=csrf(client), json={"enabled": True, "units": "furlongs"}
-    )
+    assert (await client.get("/api/settings/units")).json() == {"units": "metric"}
+    async with db.session_factory()() as s:
+        await app_settings._put(s, app_settings.SENSORS_KEY, {"units": "imperial"})
+        await s.commit()
+    assert (await client.get("/api/settings/units")).json() == {"units": "imperial"}
+    assert (await client.get("/api/tracking")).json()["units"] == "imperial"
+    r = await client.put("/api/settings/units", headers=csrf(client), json={"units": "metric"})
+    assert r.status_code == 200 and r.json() == {"units": "metric"}
+    assert (await client.get("/api/tracking")).json()["units"] == "metric"
+    async with db.session_factory()() as s:
+        assert (await app_settings.get_sensors_config(s)).units == "metric"  # the /env reply too
+        # Saving the sensors' settings saves it for everything.
+        cfg = await app_settings.get_sensors_config(s)
+        cfg.units = "imperial"
+        await app_settings.put_sensors_config(s, cfg)
+        await s.commit()
+    assert (await client.get("/api/tracking")).json()["units"] == "imperial"
+    r = await client.put("/api/settings/units", headers=csrf(client), json={"units": "furlongs"})
     assert r.status_code == 422
+    assert "units" not in (await client.get("/api/settings/tracking")).json()

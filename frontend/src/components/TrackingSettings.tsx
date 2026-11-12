@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, type TrackingConfig } from "../lib/api";
+import { api, type TrackingConfig, type Units, type UnitsConfig } from "../lib/api";
 import { useTrackingSettings } from "../pages/Shell";
 import { ErrorText, Field } from "./ui";
 import { Section, Select } from "./SettingsKit";
@@ -23,6 +23,17 @@ export function TrackingSection() {
     },
   });
   const c = save.isPending && save.variables ? save.variables : cfg.data;
+  // One setting for the whole app (also under the radio's sensors, and for the /env bot reply).
+  const units = useQuery({ queryKey: ["units"], queryFn: () => api<UnitsConfig>("/api/settings/units") });
+  const saveUnits = useMutation({
+    mutationFn: (v: Units) => api<UnitsConfig>("/api/settings/units", { method: "PUT", json: { units: v } }),
+    onSuccess: (v) => {
+      qc.setQueryData(["units"], v);
+      qc.invalidateQueries({ queryKey: ["tracking"] });
+      qc.invalidateQueries({ queryKey: ["sensors"] });
+    },
+  });
+  const unitsValue = saveUnits.isPending && saveUnits.variables ? saveUnits.variables : units.data?.units;
   return (
     <Section
       title="Tracking"
@@ -62,17 +73,24 @@ export function TrackingSection() {
           </label>
           {c.enabled && (
             <>
-              <Field label="Units" htmlFor="trk-units" hint="Distances, pace, altitude, temperature and pressure on the Tracking page.">
-                <Select
-                  id="trk-units"
-                  value={c.units}
-                  options={[
-                    { value: "metric" as const, label: "Metric (km, m, °C, hPa)" },
-                    { value: "imperial" as const, label: "Imperial (mi, ft, °F, inHg)" },
-                  ]}
-                  onChange={(v) => save.mutate({ ...c, units: v })}
-                />
-              </Field>
+              {unitsValue && (
+                <Field
+                  label="Units"
+                  htmlFor="trk-units"
+                  hint="For all of MeshHome: tracking, the radio's sensors and the /env bot reply."
+                >
+                  <Select
+                    id="trk-units"
+                    value={unitsValue}
+                    disabled={saveUnits.isPending}
+                    options={[
+                      { value: "metric" as const, label: "Metric (km, m, °C, hPa)" },
+                      { value: "imperial" as const, label: "Imperial (mi, ft, °F, inHg)" },
+                    ]}
+                    onChange={(v) => saveUnits.mutate(v)}
+                  />
+                </Field>
+              )}
               <Field label="Trail on the map" htmlFor="trk-trail" hint="The recent path drawn behind each tracker.">
                 <Select
                   id="trk-trail"
@@ -114,7 +132,7 @@ export function TrackingSection() {
       ) : (
         <ErrorText error={cfg.error} />
       )}
-      <ErrorText error={save.error} />
+      <ErrorText error={save.error ?? saveUnits.error ?? units.error} />
     </Section>
   );
 }

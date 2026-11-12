@@ -2482,6 +2482,67 @@
         }
       }
     },
+    "/api/settings/units": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Get Units Setting",
+        "description": "How measurements are shown everywhere (radio sensors, the /env bot reply, tracking).",
+        "operationId": "get_units_setting_api_settings_units_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitsConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Put Units Setting",
+        "operationId": "put_units_setting_api_settings_units_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitsConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tracking/devices": {
       "post": {
         "tags": [
@@ -9857,15 +9918,6 @@
             "minimum": 0.0,
             "title": "Trail Minutes",
             "default": 30
-          },
-          "units": {
-            "type": "string",
-            "enum": [
-              "metric",
-              "imperial"
-            ],
-            "title": "Units",
-            "default": "metric"
           }
         },
         "type": "object",
@@ -9875,6 +9927,11 @@
         "properties": {
           "config": {
             "$ref": "#/components/schemas/TrackingConfig"
+          },
+          "units": {
+            "type": "string",
+            "title": "Units",
+            "default": "metric"
           },
           "radio_connected": {
             "type": "boolean",
@@ -9946,6 +10003,21 @@
           "airtime_factor"
         ],
         "title": "TuningIn"
+      },
+      "UnitsConfig": {
+        "properties": {
+          "units": {
+            "type": "string",
+            "enum": [
+              "metric",
+              "imperial"
+            ],
+            "title": "Units",
+            "default": "metric"
+          }
+        },
+        "type": "object",
+        "title": "UnitsConfig"
       },
       "UpdateInfo": {
         "properties": {

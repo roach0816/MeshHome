@@ -103,6 +103,8 @@ export function useRealtime(enabled: boolean): SocketState {
             qc.invalidateQueries({ queryKey: ["app-install"] });
             qc.invalidateQueries({ queryKey: ["bot-apps"] });
             qc.invalidateQueries({ queryKey: ["tracking-settings"] });
+            qc.invalidateQueries({ queryKey: ["units"] });
+            qc.invalidateQueries({ queryKey: ["sensors"] });
             break;
           case "radio-status-changed":
             qc.invalidateQueries({ queryKey: ["status"] });
