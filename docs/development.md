@@ -55,7 +55,8 @@ backend/app/services/   persistence rules (positions, dedup, channel generations
 backend/app/api/        REST routes
 backend/migrations/     Alembic migrations (additive only, so rollback stays safe)
 frontend/src/           React + TypeScript + Tailwind UI
-deploy/native/          installer, root helpers, systemd units, pinned lego and ZephCore
+backend/app/meshtastic/ Meshtastic client API: protobuf codec, TCP connection, simulated node
+deploy/native/          installer, root helpers, systemd units, pinned lego and ZephCore, meshtasticd source
 deploy/k8s/             Fleet bundle (Kustomize) + *.example.yaml templates applied by hand
 ```
 

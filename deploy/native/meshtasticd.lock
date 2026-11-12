@@ -1,0 +1,14 @@
+# Where MeshHome installs meshtasticd from for the radio HAT's Meshtastic option (RAKwireless
+# RAK6421 WisMesh Pi HAT + RAK13300/RAK13302 in IO slot 1 or 2).
+#
+# meshtasticd (https://github.com/meshtastic/firmware, GPL-3.0) is Meshtastic for Linux. It is
+# installed with apt from Meshtastic's own package repository, the "beta" channel their docs
+# recommend, and apt keeps it up to date. The repository's signing key must have this fingerprint
+# before it's trusted (only for that repository).
+MESHTASTIC_CHANNEL=beta
+MESHTASTIC_REPO_BASE=http://download.opensuse.org/repositories/network:/Meshtastic:/beta
+MESHTASTIC_KEY_BASE=https://download.opensuse.org/repositories/network:Meshtastic:beta
+MESHTASTIC_KEY_FINGERPRINT=426AA6B0285C2096B70D9FC2528423A469A77D9A
+# Debian releases (/etc/os-release VERSION_ID) it's packaged for, as Debian_<n>.
+MESHTASTIC_DEBIAN_VERSIONS="12 13"
+MESHTASTIC_PORT=4403

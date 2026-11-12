@@ -25,7 +25,7 @@ def pi5(monkeypatch):
     monkeypatch.setattr(radio_hat, "hat_product", lambda: "WisMesh Pi HAT (RAKwireless)")
     monkeypatch.setattr(radio_hat, "glibc_version", lambda: "2.41")
 
-    async def absent():
+    async def absent(*_):
         return {"installed": False}
 
     monkeypatch.setattr(radio_hat, "service_state", absent)
@@ -142,7 +142,7 @@ async def test_running_radio_is_ready_inside_the_app_sandbox(client, native, pi5
     monkeypatch.setattr(radio_hat, "SPIDEV_SYSFS", str(sysfs))
     svc = {"installed": True, "active": False, "state": "inactive (dead)", "condition_met": True}
 
-    async def service():
+    async def service(*_):
         return svc
 
     monkeypatch.setattr(radio_hat, "service_state", service)
@@ -161,3 +161,57 @@ async def test_running_radio_is_ready_inside_the_app_sandbox(client, native, pi5
     svc.update(active=True, state="active (running)")
     (native / "radio-hat.json").write_text(json.dumps({"state": "needs_reboot", "updated_at": time.time()}))
     assert (await client.get("/api/system/radio-hat")).json()["phase"] == "ready"
+
+
+async def test_switching_the_hat_to_meshtastic_and_back(client, native, pi5):
+    await do_setup(client)
+    assert (
+        await client.put("/api/settings/radio", headers=csrf(client), json={"mode": "hat"})
+    ).status_code == 200
+    info = (await client.get("/api/system/radio-hat")).json()
+    assert info["firmware"] == "meshcore" and info["available_firmware"] == {
+        "meshcore": True,
+        "meshtastic": True,
+    }
+
+    r = await client.post(
+        "/api/system/radio-hat",
+        headers=csrf(client),
+        json={"action": "install", "firmware": "meshtastic", "slot": 2, "module": "13302"},
+    )
+    assert r.status_code == 202, r.text
+    req = json.loads((native / "config-request.json").read_text())
+    assert req["action"] == "hat-install" and req["firmware"] == "meshtastic"
+    assert req["slot"] == "2" and req["module"] == "13302"
+    # MeshCore can't use the HAT now; Meshtastic trackers are heard through it.
+    assert (await client.get("/api/settings/radio")).json()["mode"] == "none"
+    assert (await client.get("/api/settings/meshtastic")).json()["source"] == "hat"
+    (native / "config-request.json").unlink()
+
+    (native / "radio-hat.json").write_text(
+        json.dumps(
+            {
+                "state": "ready",
+                "firmware": "meshtastic",
+                "meshtastic_version": "2.7.26.61~obs54e0d8d~beta",
+                "meshtastic_slot": 2,
+                "meshtastic_module": "13302",
+                "updated_at": time.time(),
+            }
+        )
+    )
+    info = (await client.get("/api/system/radio-hat")).json()
+    assert info["firmware"] == "meshtastic" and info["port"] == 4403 and info["meshtastic_slot"] == 2
+
+    # Back to MeshCore: the HAT is MeshHome's radio again.
+    r = await client.post(
+        "/api/system/radio-hat", headers=csrf(client), json={"action": "install", "firmware": "meshcore"}
+    )
+    assert r.status_code == 202
+    assert json.loads((native / "config-request.json").read_text())["firmware"] == "meshcore"
+    assert (await client.get("/api/settings/radio")).json()["mode"] == "hat"
+    assert (await client.get("/api/settings/meshtastic")).json()["source"] == "off"
+    r = await client.post(
+        "/api/system/radio-hat", headers=csrf(client), json={"action": "install", "firmware": "other"}
+    )
+    assert r.status_code == 422

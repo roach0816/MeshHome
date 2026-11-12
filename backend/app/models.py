@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -313,9 +314,19 @@ class TrackedDevice(Base):
     tracker carried by a runner. Positions come from telemetry replies and from its adverts."""
 
     __tablename__ = "tracked_devices"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(contact_id, mesh_node_num) = 1", name="ck_tracked_devices_one_source"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    contact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contacts.id", ondelete="CASCADE"), unique=True)
+    # One of the two: a MeshCore contact (asked for its position), or a Meshtastic node (its
+    # position broadcasts are recorded; services/meshtastic.py).
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="CASCADE"), unique=True
+    )
+    mesh_node_num: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("mesh_nodes.num", ondelete="CASCADE"), unique=True
+    )
     # Shown instead of the contact's name, e.g. who carries it now ("Leg 7 – Sam").
     label: Mapped[str | None] = mapped_column(String(64))
     color: Mapped[str] = mapped_column(String(7), default="#e11d48")
@@ -337,6 +348,8 @@ class TrackedDevice(Base):
     course_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("courses.id", ondelete="SET NULL"))
     # The contact's advert time that was last recorded as a position, so each advert counts once.
     advert_seen_at: Mapped[datetime | None]
+    # Meshtastic: the battery level the tracker reports (0-100; 101: on external power).
+    battery_reported_pct: Mapped[int | None] = mapped_column(Integer)
 
 
 class TrackPosition(Base):
@@ -349,10 +362,12 @@ class TrackPosition(Base):
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
     alt_m: Mapped[float | None] = mapped_column(Float)
-    source: Mapped[str] = mapped_column(String(16))  # "telemetry" | "advert"
+    source: Mapped[str] = mapped_column(String(16))  # "telemetry" | "advert" | "meshtastic"
     battery_v: Mapped[float | None] = mapped_column(Float)
     # How the reply reached this radio (telemetry only, when the radio logged the packet): signal
     # of the last hop, "direct" or "flood", and the repeaters' hash prefixes, tracker's end first.
+    # Meshtastic: "mesh", one entry per hop; only the last relay is known (the low byte of its node
+    # number, "?" for the others).
     snr: Mapped[float | None] = mapped_column(Float)
     rssi: Mapped[float | None] = mapped_column(Float)
     route: Mapped[str | None] = mapped_column(String(8))
@@ -361,6 +376,31 @@ class TrackPosition(Base):
     temp_c: Mapped[float | None] = mapped_column(Float)
     pressure_hpa: Mapped[float | None] = mapped_column(Float)
     baro_alt_m: Mapped[float | None] = mapped_column(Float)
+
+
+class MeshNode(Base):
+    """A node the Meshtastic radio has heard (its node list), for naming and adding trackers."""
+
+    __tablename__ = "mesh_nodes"
+
+    num: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    node_id: Mapped[str] = mapped_column(String(9))  # "!a1b2c3d4"
+    long_name: Mapped[str | None] = mapped_column(String(40))
+    short_name: Mapped[str | None] = mapped_column(String(8))
+    hw_model: Mapped[int | None] = mapped_column(Integer)
+    role: Mapped[str | None] = mapped_column(String(16))  # CLIENT, ROUTER, TRACKER, ...
+    public_key: Mapped[str | None] = mapped_column(String(64))
+    last_heard_at: Mapped[datetime | None]
+    lat: Mapped[float | None] = mapped_column(Float)
+    lon: Mapped[float | None] = mapped_column(Float)
+    alt_m: Mapped[float | None] = mapped_column(Float)
+    position_at: Mapped[datetime | None]
+    battery_level: Mapped[int | None] = mapped_column(Integer)
+    voltage: Mapped[float | None] = mapped_column(Float)
+    snr: Mapped[float | None] = mapped_column(Float)
+    hops_away: Mapped[int | None] = mapped_column(Integer)
+    simulated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class Course(Base):

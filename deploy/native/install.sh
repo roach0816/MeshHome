@@ -20,8 +20,10 @@
 #                        DNS validation at one of 25 DNS providers (also offered when installing)
 #     --https-disable    remove the HTTPS front end and serve plain HTTP again
 #     --security-updates turn on Debian's automatic security updates (unattended-upgrades)
-#     --radio-hat        set up the RAK6421 radio HAT on a Raspberry Pi 4/5 (ZephCore); with
-#                        --remove [--purge] remove it again
+#     --radio-hat        set up the RAK6421 radio HAT on a Raspberry Pi 4/5, or switch what it runs:
+#                        --firmware meshcore (ZephCore, MeshHome's radio) or meshtastic
+#                        (meshtasticd, for Meshtastic trackers; with --slot 1|2 and
+#                        --module 13300|13302); with --remove [--purge] remove it again
 #     --radio-hat-sync   after an upgrade, update the radio HAT software (run by the installer)
 #     --apply-config     apply network/HTTPS settings requested from the web UI (run by
 #                        meshhome-config.service, never by hand)
@@ -69,6 +71,9 @@ use_layout() {  # use_layout new|legacy — point every name at one layout
   HAT_DIR=/opt/$SERVICE-radio HAT_DATA=/var/lib/$SERVICE-radio HAT_SERVICE=$SERVICE-radio
   HAT_UDEV_RULE=/etc/udev/rules.d/90-$SERVICE-radio.rules
   HAT_UNIT=/etc/systemd/system/$SERVICE-radio.service HAT_STATUS=$STATE_DIR/radio-hat.json
+  HAT_FIRMWARE_FILE=$CONF_DIR/radio-hat-firmware
+  MT_DROPIN=/etc/systemd/system/meshtasticd.service.d/$SERVICE.conf MT_HW_CONF=/etc/meshtasticd/config.d/$SERVICE-hat.yaml
+  MT_KEY=/etc/apt/keyrings/$SERVICE-meshtastic.asc MT_SOURCES=/etc/apt/sources.list.d/$SERVICE-meshtastic.list
   HELPER_UNITS=("$SERVICE-update.service" "$SERVICE-update.path" "$SERVICE-config.service" "$SERVICE-config.path")
   ACME_UNITS=("$SERVICE-acme-renew.service" "$SERVICE-acme-renew.timer")
   STATUS_FILE=$STATE_DIR/update-status.json
@@ -93,6 +98,7 @@ API_URL="${MESHHOME_API:-${MESHCORE_HOME_API:-https://api.github.com}}"
 DOWNLOAD_BASE="${MESHHOME_DOWNLOAD_BASE:-${MESHCORE_HOME_DOWNLOAD_BASE:-}}"
 
 # ---- arguments -----------------------------------------------------------------------------
+HAT_FIRMWARE="" HAT_SLOT="" HAT_MODULE=""
 WANT_VERSION="" FROM_FILE="" PORT="" PLAIN=0 HAT_REMOVE=0 ASSUME_YES=0 MODE="" FROM_REQUEST=0 PURGE=0 REPAIR=0 CONFIG_MODE=0
 HTTPS_HOST="${MESHHOME_HTTPS_HOST:-${MESHCORE_HOME_HTTPS_HOST:-}}" HTTPS_EMAIL="${MESHHOME_HTTPS_EMAIL:-${MESHCORE_HOME_HTTPS_EMAIL:-}}"
 while (($#)); do
@@ -111,6 +117,9 @@ while (($#)); do
     --security-updates) MODE=security-updates ;;
     --radio-hat) MODE=radio-hat ;;
     --remove) HAT_REMOVE=1 ;;
+    --firmware) HAT_FIRMWARE="${2:?--firmware needs meshcore or meshtastic}"; shift ;;
+    --slot) HAT_SLOT="${2:?--slot needs 1 or 2}"; shift ;;
+    --module) HAT_MODULE="${2:?--module needs 13300 or 13302}"; shift ;;
     --radio-hat-sync) MODE=radio-hat-sync; CONFIG_MODE=1; ASSUME_YES=1 ;;
     --apply-config) MODE=apply-config; CONFIG_MODE=1; ASSUME_YES=1 ;;
     --sync-units) MODE=sync-units; CONFIG_MODE=1; ASSUME_YES=1 ;;
@@ -122,6 +131,9 @@ while (($#)); do
   esac
   shift
 done
+case "$HAT_FIRMWARE" in ""|meshcore|meshtastic) ;; *) echo "--firmware: meshcore or meshtastic" >&2; exit 2 ;; esac
+case "$HAT_SLOT" in ""|1|2) ;; *) echo "--slot: 1 or 2" >&2; exit 2 ;; esac
+case "$HAT_MODULE" in ""|13300|13302) ;; *) echo "--module: 13300 or 13302" >&2; exit 2 ;; esac
 
 # ---- terminal UI ---------------------------------------------------------------------------
 # An interactive terminal gets a full-screen dashboard (on the alternate screen, like `less` or
@@ -1130,7 +1142,7 @@ uninstall() {
   local -a titles=("Review what will be removed" "Stop and remove the services" "Remove the application files")
   ((nginx)) && titles+=("Remove the HTTPS site")
   local hat=0
-  [[ -f $HAT_UNIT ]] && hat=1 && titles+=("Remove the radio HAT software")
+  [[ -f $HAT_UNIT || -f $MT_DROPIN ]] && hat=1 && titles+=("Remove the radio HAT software")
   ((PURGE)) && titles+=("Delete the database and data")
   if ((PURGE)); then tui_start "Uninstall (including all data)"; else tui_start "Uninstall"; fi
   STEP_WEIGHTS=(1 3 3 1 1 3)
@@ -1143,7 +1155,7 @@ uninstall() {
   note "  • The $SERVICE services and the $CLI_LINK command"
   note "  • The application files in $PREFIX"
   ((nginx)) && note "  • The nginx HTTPS site for $(env_get HTTPS_HOST) (nginx itself stays installed)"
-  ((hat)) && note "  • The radio HAT software (ZephCore) and its service$( ((PURGE)) && echo ", including the radio's identity" || echo "; the radio's identity in $HAT_DATA is kept")"
+  ((hat)) && note "  • The radio HAT software ($(hat_software_names)) and its service$( ((PURGE)) && echo ", including the radio's identity" || echo "; the radio's identity is kept")"
   if ((PURGE)); then
     note "  • ${R}The database $DB_NAME (all message history), $CONF_DIR and $STATE_DIR${N}"
     note "  • The system user $APP_USER"
@@ -2145,6 +2157,11 @@ creds = r.get("credentials") or {}
 if not isinstance(creds, dict) or any(not re.fullmatch(r"[A-Z0-9_]{1,64}", str(k)) or not isinstance(v, str) or len(v) > 20000 for k, v in creds.items()):
     action = "invalid"
 creds_json = json.dumps(creds) if creds else ""
+firmware = s("firmware", "meshcore")
+slot = s("slot", "1")
+module = s("module", "13300")
+if firmware not in ("meshcore", "meshtastic") or slot not in ("1", "2") or module not in ("13300", "13302"):
+    action = "invalid"
 out = {
     "ACTION": action,
     "NEW_PORT": s("app_port"), "NEW_HTTPS": flag("https_enabled", False), "NEW_HOST": s("hostname").lower(),
@@ -2152,6 +2169,7 @@ out = {
     "NEW_HTTPS_PORT": s("https_port", "443"), "NEW_REDIRECT": flag("redirect_http", True),
     "NEW_EMAIL": s("email"), "NEW_STAGING": flag("staging", False), "NEW_PROPAGATION": s("propagation_seconds", "30"),
     "NEW_TOKEN": token, "NEW_PROVIDER": provider, "RESTORE_SHA256": digest,
+    "HAT_FIRMWARE": firmware, "HAT_SLOT": slot, "HAT_MODULE": module,
 }
 for k, v in out.items():
     if re.search(r"[\x00-\x1f]", v):
@@ -2183,11 +2201,13 @@ PY
     hat-remove)
       status applying "Removing the radio HAT software"
       hat_lock || true
+      mt_lock || true
       hat_remove 0; status "done" "Radio HAT software removed" ;;
     hat-restart)
       status applying "Restarting the radio"
       hat_lock || true
-      systemctl restart "$HAT_SERVICE" >>"$LOG_FILE" 2>&1 || true
+      mt_lock || true
+      systemctl restart "$(hat_active_service)" >>"$LOG_FILE" 2>&1 || true
       if hat_wait_ready 30; then hat_status ready "Restarted"; status "done" "Radio restarted"
       else hat_status failed "The radio service did not start"; status failed "The radio service did not start"; return 1; fi ;;
     reboot)
@@ -2326,23 +2346,71 @@ meshtastic_present() {
 
 hat_test_mode() { [[ -n $(override MESHHOME_HAT_TEST) ]]; }  # containers: no SPI device or HAT EEPROM
 
+# The HAT runs one of two programs, never both (they'd fight over the radio): ZephCore (MeshCore,
+# MeshHome's radio) or meshtasticd (Meshtastic, for Meshtastic trackers). Switching keeps the other
+# one's identity, so switching back restores it.
+mt_lock() {  # load where meshtasticd comes from (MESHTASTIC_*) from the release being installed
+  local d; d=$(hat_src) || return 1
+  [[ -f $d/meshtasticd.lock ]] || return 1
+  # shellcheck disable=SC1091
+  . "$d/meshtasticd.lock"
+}
+
+mt_managed() { [[ -f $MT_DROPIN ]]; }  # meshtasticd was set up by MeshHome
+
+hat_firmware() {  # what the HAT runs: meshcore | meshtastic | nothing when it isn't set up
+  local f=""
+  [[ -f $HAT_FIRMWARE_FILE ]] && f=$(tr -dc 'a-z' <"$HAT_FIRMWARE_FILE")
+  if [[ $f == meshtastic ]] && mt_managed; then echo meshtastic; return; fi
+  if [[ $f == meshcore && -f $HAT_UNIT ]]; then echo meshcore; return; fi
+  if [[ -f $HAT_UNIT ]]; then echo meshcore; elif mt_managed; then echo meshtastic; fi
+}
+
+hat_active_service() { if [[ $(hat_firmware) == meshtastic ]]; then echo meshtasticd; else echo "$HAT_SERVICE"; fi; }
+
+hat_software_names() {
+  local -a n=()
+  [[ -f $HAT_UNIT ]] && n+=(ZephCore)
+  mt_managed && n+=(meshtasticd)
+  local IFS=/
+  echo "${n[*]:-none}"
+}
+
+mt_installed_version() { dpkg-query -W -f='${Version}' meshtasticd 2>/dev/null || true; }
+
+mt_hat_choice() {  # "MODULE SLOT" that meshtasticd is set up for (from MeshHome's hardware file)
+  [[ -f $MT_HW_CONF ]] && sed -n 's/^# MeshHome: RAK\([0-9]*\) in IO slot \([12]\).*/\1 \2/p' "$MT_HW_CONF" | head -n1
+}
+
+os_release() {  # os_release FIELD — from /etc/os-release (MESHHOME_OS_RELEASE: another file, for tests)
+  local f; f=$(override MESHHOME_OS_RELEASE); f=${f:-/etc/os-release}
+  [[ -r $f ]] && sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$f" | head -n1
+}
+
 hat_installed_version() {
   local t; t=$(readlink -f "$HAT_DIR/zephcore" 2>/dev/null || true)
   [[ -n $t && -f $t ]] && basename "$t" | sed 's/^zephcore-//'
 }
 
-hat_listening() { [[ -n $(ss -Hltn "sport = :${ZEPHCORE_PORT:-5000}" 2>/dev/null) ]]; }
+hat_port() { if [[ $(hat_firmware) == meshtastic ]]; then echo "${MESHTASTIC_PORT:-4403}"; else echo "${ZEPHCORE_PORT:-5000}"; fi; }
 
-hat_status() {  # hat_status STATE MESSAGE — facts and progress for the web UI (world-readable, no secrets)
+hat_listening() { [[ -n $(ss -Hltn "sport = :$(hat_port)" 2>/dev/null) ]]; }
+
+hat_status() {  # hat_status STATE MESSAGE [FIRMWARE] — facts and progress for the web UI (world-readable, no secrets)
   [[ -d $STATE_DIR ]] || return 0
+  local fw choice
+  fw=${3:-$(hat_firmware)}; choice=$(mt_hat_choice)
   python3 - "$HAT_STATUS" "$1" "$2" "${ZEPHCORE_VERSION:-}" "$(hat_installed_version)" "$(hat_board)" \
-    "$(pi_model)" "$(hat_product)" "$(glibc_version)" "$(boot_config)" <<'PY' || true
+    "$(pi_model)" "$(hat_product)" "$(glibc_version)" "$(boot_config)" "$fw" "$(mt_installed_version)" \
+    "${choice% *}" "${choice#* }" <<'PY' || true
 import json, os, sys, time
-path, state, message, pinned, installed, board, model, product, glibc, bootcfg = sys.argv[1:11]
+path, state, message, pinned, installed, board, model, product, glibc, bootcfg, fw, mt, module, slot = sys.argv[1:15]
 data = {
     "state": state, "message": message, "pinned_version": pinned or None,
     "installed_version": installed or None, "board": board or None, "model": model or None,
     "hat_product": product or None, "glibc": glibc or None, "boot_config": bootcfg or None,
+    "firmware": fw or None, "meshtastic_version": mt or None,
+    "meshtastic_module": module or None, "meshtastic_slot": int(slot) if slot.isdigit() else None,
     "updated_at": time.time(),
 }
 tmp = path + ".tmp"
@@ -2369,8 +2437,30 @@ hat_check() {  # sets HAT_PROBLEM and returns 1 if the radio HAT software cannot
     HAT_PROBLEM="The radio software (ZephCore) needs Raspberry Pi OS 13 \"Trixie\" or Debian 13 (glibc $ZEPHCORE_MIN_GLIBC or newer); this system has glibc ${g:-unknown}. Re-image the SD card with the current 64-bit Raspberry Pi OS, then install MeshHome again."
     return 1
   fi
-  if meshtastic_present; then
+  if meshtastic_present && ! mt_managed; then
     HAT_PROBLEM="Meshtastic (meshtasticd) is installed and would take over the radio. Remove it first: sudo apt remove meshtasticd"
+    return 1
+  fi
+}
+
+hat_check_meshtastic() {  # sets HAT_PROBLEM and returns 1 if meshtasticd cannot be set up here
+  HAT_PROBLEM=""
+  mt_lock || { HAT_PROBLEM="This release does not include the Meshtastic settings"; return 1; }
+  if [[ $(uname -m) != aarch64 ]]; then
+    HAT_PROBLEM="The radio HAT needs 64-bit Raspberry Pi OS (found $(uname -m))"; return 1
+  fi
+  if [[ -z $(hat_board) ]]; then
+    local model; model=$(pi_model)
+    HAT_PROBLEM="The RAK6421 radio HAT works on a Raspberry Pi 4 or 5 (this computer: ${model:-not a Raspberry Pi})"
+    return 1
+  fi
+  local id ver; id=$(os_release ID) ver=$(os_release VERSION_ID)
+  if [[ $id != debian || " $MESHTASTIC_DEBIAN_VERSIONS " != *" $ver "* ]]; then
+    HAT_PROBLEM="Meshtastic for Linux (meshtasticd) is packaged for 64-bit Raspberry Pi OS and Debian 12 or 13 (this system: ${id:-unknown} ${ver:-})"
+    return 1
+  fi
+  if meshtastic_present && ! mt_managed; then
+    HAT_PROBLEM="Meshtastic (meshtasticd) is already installed on this Pi, but not by MeshHome. Use it as it is (Settings → Tracking → Meshtastic → Radio HAT on this Pi), or remove it first: sudo apt remove meshtasticd"
     return 1
   fi
 }
@@ -2418,10 +2508,27 @@ hat_wait_ready() {  # hat_wait_ready SECONDS — the companion port is listening
   return 1
 }
 
-hat_install() {  # interactive or web-UI setup; returns 1 (without exiting) if the HAT was not set up
-  hat_status checking "Checking this Raspberry Pi"
+hat_install() {  # interactive or web-UI setup (HAT_FIRMWARE); returns 1 (without exiting) if not set up
+  local fw=$HAT_FIRMWARE
+  if [[ -z $fw ]]; then
+    local cur; cur=$(hat_firmware)
+    if ((ASSUME_YES)) || [[ ! -r $TTY_IN ]]; then
+      fw=${cur:-meshcore}
+    else
+      note "${B}What should the radio HAT run?${N}"
+      note "  1  MeshCore (ZephCore): MeshHome's radio, for messages, contacts and MeshCore trackers"
+      note "  2  Meshtastic (meshtasticd): for Meshtastic trackers, such as a SenseCAP X1 running Meshtastic"
+      local pick; ask pick "Choose 1 or 2" "$([[ $cur == meshtastic ]] && echo 2 || echo 1)"
+      [[ $pick == 2 ]] && fw=meshtastic || fw=meshcore
+    fi
+  fi
+  if [[ $fw == meshtastic ]]; then hat_install_meshtastic; else hat_install_meshcore; fi
+}
+
+hat_install_meshcore() {
+  hat_status checking "Checking this Raspberry Pi" meshcore
   if ! hat_check; then
-    warn "$HAT_PROBLEM"; hat_status unsupported "$HAT_PROBLEM"; return 1
+    warn "$HAT_PROBLEM"; hat_status unsupported "$HAT_PROBLEM" meshcore; return 1
   fi
   local bootcfg product
   bootcfg=$(boot_config); product=$(hat_product)
@@ -2435,14 +2542,20 @@ hat_install() {  # interactive or web-UI setup; returns 1 (without exiting) if t
   note "  • Create the system user $HAT_USER, allowed to use the SPI and GPIO devices and nothing else"
   note "  • Install the service $HAT_SERVICE: starts at boot, restarts if it stops, and only this Pi can connect to it (port $ZEPHCORE_PORT)"
   note "  • Keep the radio's identity, contacts and channels in $HAT_DATA"
+  mt_managed && note "  • Stop Meshtastic (meshtasticd): its identity and channels are kept, for switching back"
   note "${Y}ZephCore starts on 869.618 MHz, the EU/UK frequency.${N} Before using it, set your region's frequency in MeshHome → Settings → Node settings."
   ask_yn "Set up the radio HAT?" y || { info "Skipped. Set it up later with: sudo $CLI_NAME radio-hat"; hat_status absent "Not set up"; return 1; }
 
-  hat_status installing "Downloading ZephCore $ZEPHCORE_VERSION"
-  if ! hat_download; then warn "$HAT_PROBLEM"; hat_status failed "$HAT_PROBLEM"; return 1; fi
+  if [[ $(hat_installed_version) == "$ZEPHCORE_VERSION" && -x $HAT_DIR/zephcore ]]; then
+    ok "ZephCore $ZEPHCORE_VERSION is already downloaded"
+  else
+    hat_status installing "Downloading ZephCore $ZEPHCORE_VERSION" meshcore
+    if ! hat_download; then warn "$HAT_PROBLEM"; hat_status failed "$HAT_PROBLEM"; return 1; fi
+  fi
   hat_activate_binary "$ZEPHCORE_VERSION"
+  mt_stop
 
-  hat_status installing "Setting up the radio service"
+  hat_status installing "Setting up the radio service" meshcore
   getent group spi >/dev/null || groupadd --system spi
   getent group gpio >/dev/null || groupadd --system gpio
   if ! id "$HAT_USER" >/dev/null 2>&1; then
@@ -2474,6 +2587,7 @@ RULE
   fi
 
   hat_install_files || { hat_status failed "Radio HAT files are missing from this release"; return 1; }
+  printf 'meshcore\n' >"$HAT_FIRMWARE_FILE"
   systemctl enable "$HAT_SERVICE" >>"$LOG_FILE" 2>&1
   if [[ ! -e $HAT_SPIDEV ]] && ! hat_test_mode; then
     hat_status needs_reboot "Restart the Pi to finish: SPI was just turned on. The radio starts automatically afterwards."
@@ -2494,23 +2608,187 @@ RULE
   return 1
 }
 
+# ---- the radio HAT with Meshtastic (meshtasticd) ----------------------------------------------
+# meshtasticd comes from Meshtastic's apt repository (meshtasticd.lock: its signing key's fingerprint
+# is checked, and the key is trusted for that repository only). MeshHome adds a hardware file for
+# the RAK module and slot, and a systemd drop-in so that only this Pi can reach its API (port 4403,
+# no password) and it waits for the SPI bus. Its identity and channels stay in /var/lib/meshtasticd.
+
+mt_stop() {  # stop and mask meshtasticd set up by MeshHome (switching the HAT to ZephCore)
+  mt_managed || return 0
+  systemctl disable --now meshtasticd >>"$LOG_FILE" 2>&1 || true
+  systemctl mask meshtasticd >>"$LOG_FILE" 2>&1 || true
+  ok "Stopped Meshtastic (meshtasticd); its identity and channels are kept for switching back"
+}
+
+mt_spidev() { if [[ ${1:-1} == 2 ]]; then echo /dev/spidev0.1; else echo /dev/spidev0.0; fi; }
+
+mt_dropin() {  # mt_dropin SLOT — the systemd drop-in for meshtasticd
+  install -d -m 755 "$(dirname "$MT_DROPIN")"
+  {
+    printf '# Written by MeshHome (install.sh) for the radio HAT; removed with it.\n[Unit]\n'
+    printf '# The SPI bus only appears after "dtparam=spi=on" and a restart of the Pi.\n'
+    if hat_test_mode; then printf 'ConditionPathExists=\n'; else printf 'ConditionPathExists=%s\n' "$(mt_spidev "$1")"; fi
+    printf '\n[Service]\n# Its API (port 4403) and web server have no password, so only this Pi may connect to them.\n'
+    printf 'IPAddressDeny=any\nIPAddressAllow=localhost\n'
+  } >"$MT_DROPIN"
+}
+
+mt_hw_config() {  # mt_hw_config MODULE SLOT — use meshtasticd's own file for the RAK6421 with that module and slot
+  local src="/etc/meshtasticd/available.d/lora-RAK6421-$1-slot$2.yaml"
+  [[ -f $src ]] || { HAT_PROBLEM="meshtasticd has no settings for a RAK$1 in slot $2 ($src)"; return 1; }
+  install -d -m 755 "$(dirname "$MT_HW_CONF")"
+  # Its node number comes from a MAC address, which meshtasticd needs named: the Pi's own Ethernet
+  # (fixed, even with no cable plugged in), else its Wi-Fi.
+  local iface=""
+  for iface in eth0 end0 wlan0; do [[ -e /sys/class/net/$iface/address ]] && break; iface=""; done
+  [[ -n $iface ]] || iface=$(find /sys/class/net -mindepth 1 -maxdepth 1 ! -name lo -printf '%f\n' 2>/dev/null | sort | head -n1)
+  [[ -n $iface ]] || { HAT_PROBLEM="No network interface to give meshtasticd its MAC address"; return 1; }
+  {
+    printf '# MeshHome: RAK%s in IO slot %s (a copy of %s)\n' "$1" "$2" "$src"
+    cat "$src"
+    printf '\n# MeshHome: the node number comes from the MAC address of %s.\nGeneral:\n  MACAddressSource: %s\n' "$iface" "$iface"
+  } >"$MT_HW_CONF"
+  chmod 644 "$MT_HW_CONF"
+}
+
+mt_add_repo() {  # Meshtastic's apt repository for this Debian release, with its key checked
+  local ver tmp fpr base
+  ver=$(os_release VERSION_ID)
+  base=$(override MESHHOME_MESHTASTIC_REPO); base=${base:-$MESHTASTIC_REPO_BASE}
+  if [[ -f $MT_SOURCES && -f $MT_KEY ]]; then return 0; fi
+  if ! command -v gpg >/dev/null; then
+    run_bg "Refreshing package lists" apt-get update || true
+    run_bg "Installing gnupg (to check the repository's key)" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnupg ||
+      { HAT_PROBLEM="Could not install gnupg to check Meshtastic's repository key"; return 1; }
+  fi
+  tmp=$(mktemp)
+  if ! run_bg "Downloading Meshtastic's repository key" curl -fsSL --retry 3 -o "$tmp" "$MESHTASTIC_KEY_BASE/Debian_$ver/Release.key"; then
+    rm -f "$tmp"; HAT_PROBLEM="Could not download Meshtastic's repository key (check internet access)"; return 1
+  fi
+  fpr=$(gpg --show-keys --with-colons "$tmp" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')
+  if [[ $fpr != "$MESHTASTIC_KEY_FINGERPRINT" ]]; then
+    rm -f "$tmp"; HAT_PROBLEM="Meshtastic's repository key has an unexpected fingerprint (${fpr:-none}), so it was not trusted"; return 1
+  fi
+  install -d -m 755 "$(dirname "$MT_KEY")"
+  install -m 644 "$tmp" "$MT_KEY"; rm -f "$tmp"
+  printf '# Meshtastic (meshtasticd) for the radio HAT, added by MeshHome. Key: %s\ndeb [signed-by=%s] %s/Debian_%s/ /\n' \
+    "$MESHTASTIC_KEY_FINGERPRINT" "$MT_KEY" "$base" "$ver" >"$MT_SOURCES"
+  ok "Added Meshtastic's package repository (key $MESHTASTIC_KEY_FINGERPRINT checked)"
+}
+
+mt_apt_install() {
+  if dpkg-query -W -f='${Status}' meshtasticd 2>/dev/null | grep -q "ok installed"; then return 0; fi
+  if ((CONFIG_MODE)) || ((ASSUME_YES)); then
+    run_bg "Refreshing package lists" apt-get update || { HAT_PROBLEM="apt-get update failed (check internet access)"; return 1; }
+    run_bg "Installing meshtasticd" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends meshtasticd ||
+      { HAT_PROBLEM="Installing meshtasticd with apt failed; see $LOG_FILE"; return 1; }
+  else
+    apt_review_install "Install Meshtastic (meshtasticd)?" skip meshtasticd || { HAT_PROBLEM="Not installed"; return 1; }
+  fi
+  ok "Installed meshtasticd $(mt_installed_version)"
+}
+
+hat_install_meshtastic() {
+  hat_status checking "Checking this Raspberry Pi" meshtastic
+  if ! hat_check_meshtastic; then
+    warn "$HAT_PROBLEM"; hat_status unsupported "$HAT_PROBLEM" meshtastic; return 1
+  fi
+  local module=${HAT_MODULE:-13300} slot=${HAT_SLOT:-1} bootcfg product
+  bootcfg=$(boot_config); product=$(hat_product)
+  ((TUI_ON)) || printf '\n'
+  note "${B}Radio HAT with Meshtastic${N} on this $(pi_model)${product:+ · detected: $product}"
+  note "${B}These changes will be made:${N}"
+  note "  • Add Meshtastic's package repository (download.opensuse.org; its key is checked) and install meshtasticd, Meshtastic for Linux (GPL-3.0), with apt. apt keeps it up to date."
+  note "  • Set it up for the RAK6421 with a RAK$module in IO slot $slot"
+  spi_configured || note "  • Turn on SPI in ${bootcfg:-the boot configuration} (dtparam=spi=on); the Pi needs ${B}one restart${N} afterwards"
+  [[ -f $HAT_UNIT ]] && note "  • Stop ZephCore (MeshCore): its identity, contacts and channels are kept, for switching back. MeshHome has no MeshCore radio until then."
+  note "  • Only this Pi can connect to meshtasticd (port ${MESHTASTIC_PORT:-4403}); MeshHome follows Meshtastic trackers through it"
+  ask_yn "Set up the radio HAT with Meshtastic?" y || { info "Skipped."; hat_status "$( [[ -n $(hat_firmware) ]] && echo ready || echo absent)" "Not changed"; return 1; }
+
+  hat_status installing "Adding Meshtastic's package repository" meshtastic
+  if ! mt_add_repo; then warn "$HAT_PROBLEM"; hat_status failed "$HAT_PROBLEM" meshtastic; return 1; fi
+  if [[ -f $HAT_UNIT ]]; then
+    systemctl disable --now "$HAT_SERVICE" >>"$LOG_FILE" 2>&1 || true
+    ok "Stopped ZephCore (MeshCore); its identity is kept in $HAT_DATA"
+  fi
+  # MeshHome's drop-in first, so meshtasticd's first start (when apt installs it) already waits
+  # for the SPI bus and is reachable from this Pi only.
+  mt_dropin "$slot"
+  systemctl unmask meshtasticd >>"$LOG_FILE" 2>&1 || true
+  systemctl daemon-reload
+  hat_status installing "Installing meshtasticd" meshtastic
+  if ! mt_apt_install; then warn "$HAT_PROBLEM"; hat_status failed "$HAT_PROBLEM" meshtastic; return 1; fi
+  if ! mt_hw_config "$module" "$slot"; then warn "$HAT_PROBLEM"; hat_status failed "$HAT_PROBLEM" meshtastic; return 1; fi
+  printf 'meshtastic\n' >"$HAT_FIRMWARE_FILE"
+
+  if ! spi_configured; then
+    if [[ -z $bootcfg ]]; then
+      warn "No boot configuration file found: turn on SPI with raspi-config (Interface Options → SPI)"
+    else
+      cp -p "$bootcfg" "$bootcfg.meshcore-home.bak"
+      printf '\n# Added by MeshHome for the radio HAT (SPI bus for the LoRa module)\n[all]\ndtparam=spi=on\n' >>"$bootcfg"
+      ok "Turned on SPI in $bootcfg (previous version saved as $bootcfg.meshcore-home.bak)"
+    fi
+  fi
+  systemctl enable meshtasticd >>"$LOG_FILE" 2>&1 || true
+  if [[ ! -e $(mt_spidev "$slot") ]] && ! hat_test_mode; then
+    hat_status needs_reboot "Restart the Pi to finish: SPI was just turned on. Meshtastic starts automatically afterwards." meshtastic
+    warn "Restart the Pi to finish setting up the radio HAT (SPI was just turned on): sudo reboot"
+    step_note "meshtasticd · restart the Pi to finish"
+    return 0
+  fi
+  run_bg "Starting Meshtastic" systemctl restart meshtasticd || true
+  if hat_wait_ready 30; then
+    ok "The radio HAT is running Meshtastic (its API on 127.0.0.1:${MESHTASTIC_PORT:-4403})"
+    step_note "meshtasticd $(mt_installed_version) · running"
+    hat_status ready "Running" meshtastic
+    return 0
+  fi
+  journalctl -u meshtasticd -n 30 --no-pager >>"$LOG_FILE" 2>&1 || true
+  warn "meshtasticd did not start; see: sudo $CLI_NAME radio-hat logs"
+  hat_status failed "Meshtastic (meshtasticd) did not start. Details: sudo $CLI_NAME radio-hat logs" meshtastic
+  return 1
+}
+
+mt_remove() {  # mt_remove PURGE(0/1)
+  mt_managed || return 0
+  systemctl disable --now meshtasticd >>"$LOG_FILE" 2>&1 || true
+  systemctl unmask meshtasticd >>"$LOG_FILE" 2>&1 || true
+  run_bg "Removing meshtasticd" env DEBIAN_FRONTEND=noninteractive apt-get remove -y meshtasticd || true
+  rm -f "$MT_DROPIN" "$MT_HW_CONF" "$MT_SOURCES" "$MT_KEY"
+  rmdir "$(dirname "$MT_DROPIN")" 2>/dev/null || true
+  if (($1)); then rm -rf /var/lib/meshtasticd; fi
+}
+
 hat_remove() {  # hat_remove PURGE(0/1) — remove the radio HAT software; PURGE also deletes the radio's identity
   systemctl disable --now "$HAT_SERVICE" >>"$LOG_FILE" 2>&1 || true
   rm -f "$HAT_UNIT"
   rm -rf "${HAT_UNIT:?}.d" "${HAT_DIR:?}"
   rm -f "${HAT_UDEV_RULE:?}"
+  mt_remove "$1"
+  rm -f "$HAT_FIRMWARE_FILE"
   systemctl daemon-reload
   if (($1)); then
     rm -rf "${HAT_DATA:?}"
     userdel "$HAT_USER" >>"$LOG_FILE" 2>&1 || true
     ok "Radio HAT software and the radio's identity removed"
   else
-    ok "Radio HAT software removed (the radio's identity is kept in $HAT_DATA)"
+    ok "Radio HAT software removed (the radio's identity is kept)"
   fi
-  hat_status absent "Not set up"
+  hat_status absent "Not set up" ""
 }
 
 hat_sync() {  # --radio-hat-sync: after an upgrade, bring an installed HAT to this release's pinned ZephCore
+  if [[ $(hat_firmware) == meshtastic ]]; then
+    # apt keeps meshtasticd itself up to date; refresh MeshHome's drop-in from this release.
+    mt_lock || true
+    local choice; choice=$(mt_hat_choice)
+    mt_dropin "${choice#* }"
+    systemctl daemon-reload
+    hat_status "$( (systemctl is-active --quiet meshtasticd) && echo ready || echo installed)" "meshtasticd $(mt_installed_version)" meshtastic
+    return 0
+  fi
   [[ -f $HAT_UNIT ]] || return 0
   hat_lock || return 0
   local cur; cur=$(hat_installed_version)
@@ -2543,7 +2821,7 @@ hat_sync() {  # --radio-hat-sync: after an upgrade, bring an installed HAT to th
 }
 
 radio_hat_after_upgrade() {  # run the new release's HAT sync (an older installer cannot know its files)
-  [[ -f $HAT_UNIT ]] || return 0
+  [[ -f $HAT_UNIT || -f $MT_DROPIN ]] || return 0
   if bash "$PREFIX/current/deploy/native/install.sh" --radio-hat-sync >>"$LOG_FILE" 2>&1; then
     ok "Radio HAT software is up to date"
   else
@@ -2870,12 +3148,13 @@ main() {
     [[ -n $(installed_version) ]] || die "$APP_NAME is not installed"
     TARGET_VERSION=$(installed_version)
     if ((HAT_REMOVE)); then
-      [[ -f $HAT_UNIT ]] || { ok "The radio HAT is not set up"; return 0; }
+      [[ -f $HAT_UNIT ]] || mt_managed || { ok "The radio HAT is not set up"; return 0; }
       tui_start "Radio HAT"; plan "Remove the radio HAT software"; step
-      note "${B}This will remove${N} the radio HAT service and ZephCore$( ((PURGE)) && echo ", and delete the radio's identity, contacts and channels" || echo "; the radio's identity is kept in $HAT_DATA")."
+      note "${B}This will remove${N} the radio HAT service and $(hat_software_names)$( ((PURGE)) && echo ", and delete the radio's identity, contacts and channels" || echo "; the radio's identity is kept")."
       note "SPI stays turned on. Switch MeshHome to another radio in Settings → Radio connection."
       confirm "Remove the radio HAT software?"
       hat_lock || true
+      mt_lock || true
       hat_remove "$PURGE"; steps_done; tui_end
       return
     fi
@@ -2884,8 +3163,13 @@ main() {
     plan "Set up the radio HAT"; step
     if hat_install; then
       steps_done; tui_end
-      printf '\n  %s✓ Radio HAT set up.%s In MeshHome choose %sSettings → Radio connection → Radio HAT on this Pi%s.\n' "$G" "$N" "$B" "$N"
-      [[ -e $HAT_SPIDEV ]] || hat_test_mode || printf '  %sRestart the Pi first (SPI was just turned on): sudo reboot%s\n' "$Y" "$N"
+      if [[ $(hat_firmware) == meshtastic ]]; then
+        printf '\n  %s✓ Radio HAT set up with Meshtastic.%s In MeshHome choose %sSettings → Tracking → Meshtastic → Radio HAT on this Pi%s.\n' "$G" "$N" "$B" "$N"
+        [[ -e $(mt_spidev "${HAT_SLOT:-1}") ]] || hat_test_mode || printf '  %sRestart the Pi first (SPI was just turned on): sudo reboot%s\n' "$Y" "$N"
+      else
+        printf '\n  %s✓ Radio HAT set up.%s In MeshHome choose %sSettings → Radio connection → Radio HAT on this Pi%s.\n' "$G" "$N" "$B" "$N"
+        [[ -e $HAT_SPIDEV ]] || hat_test_mode || printf '  %sRestart the Pi first (SPI was just turned on): sudo reboot%s\n' "$Y" "$N"
+      fi
       printf '\n'
     else
       step_skip "Not set up"; tui_end; exit 1
@@ -2966,7 +3250,7 @@ main() {
     local product; product=$(hat_product)
     if [[ -n $product ]]; then
       note "A HAT was detected: ${B}$product${N}."
-      if ask_yn "Set up the radio HAT (RAK6421) as this Pi's MeshCore radio?" y; then hat_install || step_skip "Not set up"; else step_skip "Skipped"; fi
+      if ask_yn "Set up the radio HAT (RAK6421) on this Pi?" y; then hat_install || step_skip "Not set up"; else step_skip "Skipped"; fi
     elif ask_yn "Set up a RAK6421 radio HAT on this Pi? (no HAT was detected)" n; then
       hat_install || step_skip "Not set up"
     else

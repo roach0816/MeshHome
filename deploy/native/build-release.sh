@@ -18,7 +18,7 @@ mkdir -p "$D/deploy/native"
 cp -R "$ROOT/backend/app" "$ROOT/backend/migrations" "$ROOT/backend/alembic.ini" "$ROOT/backend/requirements.txt" "$D/"
 cp -R "$ROOT/frontend/dist" "$D/static"
 cp -R "$ROOT/deploy/native/install.sh" "$ROOT/deploy/native/meshhome" "$ROOT/deploy/native/tls-hook" \
-  "$ROOT/deploy/native/status.py" "$ROOT/deploy/native/radio-hat-run" "$ROOT/deploy/native/zephcore.lock" \
+  "$ROOT/deploy/native/status.py" "$ROOT/deploy/native/radio-hat-run" "$ROOT/deploy/native/zephcore.lock" "$ROOT/deploy/native/meshtasticd.lock" \
   "$ROOT/deploy/native/lego.lock" "$ROOT/deploy/native/dns-providers.json" \
   "$ROOT/deploy/native/systemd" "$D/deploy/native/"
 cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" "$D/"

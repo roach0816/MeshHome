@@ -37,3 +37,11 @@ When you set up the **radio HAT**, the installer downloads a prebuilt
 BSD-2-Clause OR CC0-1.0, and is built on Zephyr RTOS, Apache-2.0) from its GitHub releases. It is
 not distributed with MeshHome; the exact version and SHA-256 checksums are pinned in
 `deploy/native/zephcore.lock`.
+
+When you switch the **radio HAT to Meshtastic**, the installer installs
+[meshtasticd](https://github.com/meshtastic/firmware) (Meshtastic for Linux, GPL-3.0) with apt from
+Meshtastic's own package repository, after checking the repository key's fingerprint (pinned in
+`deploy/native/meshtasticd.lock`). It is not distributed with MeshHome and runs as its own program;
+MeshHome talks to it over its network API. MeshHome's reader for that API
+(`backend/app/meshtastic/`) was written for MeshHome from the messages' published field numbers and
+doesn't include Meshtastic's protobuf definitions.

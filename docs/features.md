@@ -270,6 +270,42 @@ navigation.
   needs your node in its contacts, to read the request. The tracker's status says when it answered
   without a position.
 
+### Meshtastic trackers
+
+Trackers running Meshtastic, such as a SenseCAP MeshTracker X1 (which ships with it), can be
+followed too, alongside MeshCore trackers on the same map.
+
+- **How positions arrive:** Meshtastic trackers broadcast their position on their own, on a timer or
+  when they've moved (smart position), and their battery and sensor readings on other timers. So
+  nothing is polled: MeshHome records every position it hears from a tracked node, with its battery
+  as the tracker reports it, its temperature and pressure, and how the packet arrived (hop count,
+  SNR and RSSI, and the last relay, named from the node list, such as "via Car Router (2 hops)").
+  Positions from while MeshHome wasn't connected come from the node's own list when it reconnects.
+  **Ask now** sends a position request, which a tracker answers at most every 3 minutes.
+- **Where they're heard** (Settings → Tracking → *Meshtastic trackers*): the **radio HAT on this
+  Pi** running Meshtastic (see below), **a Meshtastic node on the network** (its API on TCP port
+  4403, e.g. an ESP32 node with Wi-Fi), or a **simulated** node with two trackers running the first
+  visible course, to rehearse at home.
+- **The team channel:** trackers must share a channel with that node. On Meshtastic's default
+  public channel, positions are sent blurred to about 1.5 km and anyone nearby can follow them, so
+  MeshHome sets up a **private team channel**: a random key, positions at full precision, and your
+  region and modem preset. Its **QR code** (the Meshtastic share link) is scanned into each tracker
+  and relay with the Meshtastic app (Channels → scan → Replace), which also sets their radio to
+  match. The code holds the channel's key.
+- **Adding one:** in Tracking, **Add a tracker** → *Meshtastic node*, from the nodes the radio has
+  heard (trackers first). Course, label and colour work as for MeshCore trackers; there's no
+  interval to set, as the tracker decides how often it broadcasts (set it on the tracker, for
+  example every 60–120 s with smart position on).
+- **The radio HAT with Meshtastic:** in **Settings → Radio connection → Radio HAT on this Pi**,
+  *Switch to Meshtastic* (or `sudo meshhome radio-hat setup --firmware meshtastic`) installs
+  meshtasticd, Meshtastic for Linux, from Meshtastic's apt repository and runs it on the HAT instead
+  of ZephCore. The HAT then isn't MeshHome's MeshCore radio: MeshHome turns that radio mode off and
+  hears Meshtastic trackers through the HAT. *Switch to MeshCore* brings back ZephCore with its
+  identity, contacts and channels, and MeshHome's radio with it. Choose the RAK module (RAK13300 or
+  RAK13302) and its IO slot.
+- **Not tested on real Meshtastic hardware yet.** It was tested against meshtasticd 2.7.26 (two
+  simulated nodes passing positions between them), and the installer in a Debian 13 container.
+
 ### Offline map
 
 For a venue without internet: your phone can still reach MeshHome over its Wi-Fi, but not a tile
@@ -309,7 +345,8 @@ they don't include these readings.
 
 ## Settings and administration
 
-- **Radio connection:** MeshCore TCP, the Raspberry Pi radio HAT (native installs), Simulated (sample
+- **Radio connection:** MeshCore TCP, the Raspberry Pi radio HAT (native installs; it can run
+  Meshtastic instead, for Meshtastic trackers), Simulated (sample
   traffic, no hardware), or None. Switch at any time.
 - **Account** (click your name, bottom left): change your username and password, sign out, and
   see **signed-in devices** (browsers), with sign-out for any of them or all at once.

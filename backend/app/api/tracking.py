@@ -14,10 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_auth, require_session
 from app.db import get_db
-from app.models import AuditEvent, Contact, Course, Radio, TrackedDevice, TrackPosition, utcnow
+from app.meshtastic import proto as mt
+from app.meshtastic.client import MeshtasticError
+from app.models import AuditEvent, Contact, Course, MeshNode, Radio, TrackedDevice, TrackPosition, utcnow
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import app_settings, courses, offline_map, progress, tracking
+from app.services import app_settings, courses, meshtastic, offline_map, progress, tracking
 
 router = APIRouter(prefix="/api", tags=["tracking"])
 
@@ -30,7 +32,8 @@ class TrackPoint(BaseModel):
     lat: float
     lon: float
     alt_m: float | None = None
-    source: str  # "telemetry" (it answered a request) | "advert"
+    # "telemetry" (it answered a request) | "advert" | "meshtastic" (a Meshtastic position packet)
+    source: str
 
 
 class CourseProgress(BaseModel):
@@ -66,7 +69,9 @@ class Hop(BaseModel):
 
 class ReplyLink(BaseModel):
     at: datetime
-    route: str  # "direct" (its stored route) | "flood"
+    # "direct" (its stored route) | "flood" | "mesh" (Meshtastic: one hop entry per relay, but only
+    # the last relay is known, by the low byte of its node number; the others are "?")
+    route: str
     hops: list[Hop]  # repeaters, the tracker's end first; empty: heard directly
     # Signal of the last hop, as this radio heard it.
     snr: float | None
@@ -82,12 +87,18 @@ class Sensors(BaseModel):
 
 class TrackedDeviceOut(BaseModel):
     id: uuid.UUID
-    contact_id: uuid.UUID
-    public_key: str
-    # The contact's name (its alias if it has one); label, when set, is shown instead.
+    # "meshcore": a contact asked for its position on a schedule (contact_id, public_key);
+    # "meshtastic": a Meshtastic node whose position broadcasts are recorded (node_id).
+    source: str = "meshcore"
+    contact_id: uuid.UUID | None
+    public_key: str | None
+    node_id: str | None = None
+    # The contact's name (its alias if it has one), or the Meshtastic node's long name; label, when
+    # set, is shown instead.
     name: str
     label: str | None
     color: str
+    # MeshCore: how often it's asked. Meshtastic: about how often it has been broadcasting.
     interval_s: int
     polling: bool
     show: bool
@@ -109,7 +120,8 @@ class TrackedDeviceOut(BaseModel):
     link: ReplyLink | None = None
     # Its latest environment readings (when it shares them).
     sensors: Sensors | None = None
-    # On the radio that's connected now (its other radios' contacts aren't asked).
+    # On the radio that's connected now (its other radios' contacts aren't asked). Meshtastic:
+    # true while MeshHome is connected to the Meshtastic node.
     current_radio: bool
     is_simulated: bool
     # Seconds until it's asked next (None: not scheduled); true while a request is out.
@@ -126,6 +138,32 @@ class BasePosition(BaseModel):
     lon: float
 
 
+class MeshtasticChannel(BaseModel):
+    name: str  # "" for the default public channel
+    private: bool  # its own key, not Meshtastic's default one
+    precise: bool  # positions on it are sent at full precision
+
+
+class MeshtasticNodeInfo(BaseModel):
+    num: int
+    node_id: str
+    long_name: str | None
+    short_name: str | None
+    firmware: str | None
+
+
+class MeshtasticStatus(BaseModel):
+    # off | hat | network | simulated
+    source: str
+    # off | connecting | connected | error
+    state: str
+    detail: str | None
+    node: MeshtasticNodeInfo | None
+    region: str | None
+    preset: str | None
+    channel: MeshtasticChannel | None
+
+
 class TrackingOut(BaseModel):
     config: app_settings.TrackingConfig
     # The app-wide units setting (GET/PUT /api/settings/units); values here are always metric.
@@ -136,6 +174,8 @@ class TrackingOut(BaseModel):
     devices: list[TrackedDeviceOut]
     tiles: app_settings.MapConfig
     offline: dict
+    # Meshtastic trackers (Settings → Tracking → Meshtastic); None while that's off.
+    meshtastic: MeshtasticStatus | None = None
 
 
 def _point(p: TrackPosition) -> TrackPoint:
@@ -151,17 +191,35 @@ PROGRESS_WINDOW = timedelta(minutes=30)
 
 
 class _Context:
-    """What every tracker's output needs: courses, and names for repeater hash prefixes."""
+    """What every tracker's output needs: courses, and names for repeater hash prefixes (MeshCore)
+    and relay bytes (Meshtastic)."""
 
-    def __init__(self, course_rows: list[Course], contacts: list[tuple[str, str | None, int]]):
+    def __init__(
+        self,
+        course_rows: list[Course],
+        contacts: list[tuple[str, str | None, int]],
+        mesh_nodes: list[tuple[int, str | None, str | None]] | None = None,
+    ):
         self.courses = {c.id: c for c in course_rows}
         self.contacts = contacts
+        self.mesh_nodes = mesh_nodes or []
 
     def hop_name(self, h: str) -> str | None:
         found = [(name, kind) for key, name, kind in self.contacts if key.startswith(h.lower())]
         repeaters = [n for n, k in found if k == 2]
         if len(repeaters) == 1:
             return repeaters[0]
+        return found[0][0] if len(found) == 1 else None
+
+    def relay_name(self, h: str) -> str | None:
+        try:
+            byte = int(h, 16)
+        except ValueError:
+            return None
+        found = [(name, role) for num, name, role in self.mesh_nodes if num & 0xFF == byte]
+        relays = [n for n, r in found if r in mt.RELAY_ROLES]
+        if len(relays) == 1:
+            return relays[0]
         return found[0][0] if len(found) == 1 else None
 
 
@@ -180,7 +238,13 @@ async def _context(db: AsyncSession) -> _Context:
                 )
             ).all()
         ]
-    return _Context(course_rows, contacts)
+    mesh = [
+        (num, long or short, role)
+        for num, long, short, role in (
+            await db.execute(select(MeshNode.num, MeshNode.long_name, MeshNode.short_name, MeshNode.role))
+        ).all()
+    ]
+    return _Context(course_rows, contacts, mesh)
 
 
 def _progress(
@@ -248,7 +312,8 @@ def _progress(
 async def _device_out(
     db: AsyncSession,
     d: TrackedDevice,
-    c: Contact,
+    c: Contact | None,
+    n: MeshNode | None,
     sim: bool,
     trail_minutes: int,
     ctx: _Context | None = None,
@@ -318,12 +383,26 @@ async def _device_out(
         ).scalar_one_or_none()
     prog, pace = _progress(ctx, d, recent)
     pct = tracking.battery_percent(d.battery_v, d.battery_max_v)
+    if n is not None and d.battery_reported_pct is not None and 0 < d.battery_reported_pct <= 100:
+        pct = d.battery_reported_pct  # what the Meshtastic tracker reports itself
     radio = supervisor.radio
+    if n is not None:
+        name = n.long_name or n.short_name or n.node_id
+        current = meshtastic.source.connected
+        asking = meshtastic.source.asking(n.num)
+    else:
+        assert c is not None
+        name = c.alias or c.name or c.public_key[:8]
+        current = radio is not None and c.radio_id == radio.id
+        asking = tracking.manager.polling_now == d.id
+    hop_name = ctx.relay_name if n is not None else ctx.hop_name
     return TrackedDeviceOut(
         id=d.id,
-        contact_id=c.id,
-        public_key=c.public_key,
-        name=c.alias or c.name or c.public_key[:8],
+        source="meshtastic" if n is not None else "meshcore",
+        contact_id=c.id if c is not None else None,
+        public_key=c.public_key if c is not None else None,
+        node_id=n.node_id if n is not None else None,
+        name=name,
         label=d.label,
         color=d.color,
         interval_s=d.interval_s,
@@ -345,7 +424,11 @@ async def _device_out(
         else ReplyLink(
             at=link_row.at,
             route=link_row.route or "direct",
-            hops=[Hop(hash=h, name=ctx.hop_name(h)) for h in (link_row.hops or []) if isinstance(h, str)],
+            hops=[
+                Hop(hash=h, name=None if h == "?" else hop_name(h))
+                for h in (link_row.hops or [])
+                if isinstance(h, str)
+            ],
             snr=link_row.snr,
             rssi=link_row.rssi,
         ),
@@ -357,43 +440,60 @@ async def _device_out(
             pressure_hpa=sensor_row.pressure_hpa,
             baro_alt_m=sensor_row.baro_alt_m,
         ),
-        current_radio=radio is not None and c.radio_id == radio.id,
+        current_radio=current,
         is_simulated=sim,
-        next_poll_in=tracking.manager.next_poll_in(d.id) if d.polling else None,
-        asking=tracking.manager.polling_now == d.id,
+        next_poll_in=tracking.manager.next_poll_in(d.id) if d.polling and n is None else None,
+        asking=asking,
         last_position=_point(last) if last else None,
         trail=[_point(p) for p in trail],
     )
 
 
-async def _load(db: AsyncSession, device_id: uuid.UUID) -> tuple[TrackedDevice, Contact, bool]:
-    row = (
-        await db.execute(
-            select(TrackedDevice, Contact, Radio.is_simulated)
-            .join(Contact, Contact.id == TrackedDevice.contact_id)
-            .join(Radio, Radio.id == Contact.radio_id)
-            .where(TrackedDevice.id == device_id)
-        )
-    ).first()
+def _rows():
+    """Trackers with their contact (MeshCore) or node (Meshtastic), and whether it's simulated."""
+    return (
+        select(TrackedDevice, Contact, MeshNode, Radio.is_simulated)
+        .outerjoin(Contact, Contact.id == TrackedDevice.contact_id)
+        .outerjoin(Radio, Radio.id == Contact.radio_id)
+        .outerjoin(MeshNode, MeshNode.num == TrackedDevice.mesh_node_num)
+    )
+
+
+async def _load(
+    db: AsyncSession, device_id: uuid.UUID
+) -> tuple[TrackedDevice, Contact | None, MeshNode | None, bool]:
+    row = (await db.execute(_rows().where(TrackedDevice.id == device_id))).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tracked device not found")
-    return row[0], row[1], row[2]
+    d, c, n, sim = row
+    return d, c, n, bool(sim) if c is not None else bool(n is not None and n.simulated)
+
+
+def meshtastic_status() -> MeshtasticStatus | None:
+    info = meshtastic.source.info()
+    if info["source"] == "off" and info["state"] == "off":
+        return None
+    return MeshtasticStatus.model_validate(info)
 
 
 @router.get("/tracking", response_model=TrackingOut)
 async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
     """Tracked devices with their last position and recent trail, for the tracking map."""
     cfg = await app_settings.get_tracking_config(db)
-    rows = (
-        await db.execute(
-            select(TrackedDevice, Contact, Radio.is_simulated)
-            .join(Contact, Contact.id == TrackedDevice.contact_id)
-            .join(Radio, Radio.id == Contact.radio_id)
-            .order_by(TrackedDevice.created_at)
-        )
-    ).all()
+    rows = (await db.execute(_rows().order_by(TrackedDevice.created_at))).all()
     ctx_ = await _context(db)
-    devices = [await _device_out(db, d, c, sim, cfg.trail_minutes, ctx_) for d, c, sim in rows]
+    devices = [
+        await _device_out(
+            db,
+            d,
+            c,
+            n,
+            bool(sim) if c is not None else bool(n is not None and n.simulated),
+            cfg.trail_minutes,
+            ctx_,
+        )
+        for d, c, n, sim in rows
+    ]
     base = None
     radio = supervisor.radio
     if radio is not None:
@@ -401,6 +501,11 @@ async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSessio
         loc = ((r.self_info if r else None) or {}).get("location") or {}
         if loc.get("lat") is not None and loc.get("lon") is not None:
             base = BasePosition(name=r.name, lat=loc["lat"], lon=loc["lon"])
+    snap = meshtastic.source.snapshot if meshtastic.source.connected else None
+    if base is None and snap is not None:
+        me = await db.get(MeshNode, snap.my_num)
+        if me is not None and me.lat is not None and me.lon is not None:
+            base = BasePosition(name=me.long_name or me.node_id, lat=me.lat, lon=me.lon)
     tiles = await app_settings.get_map_config(db)
     units = (await app_settings.get_units(db)).units
     await db.rollback()
@@ -413,6 +518,7 @@ async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSessio
         devices=devices,
         tiles=tiles,
         offline=await offline_map.manager.summary(),
+        meshtastic=meshtastic_status(),
     )
 
 
@@ -431,6 +537,7 @@ async def put_tracking_settings(
     db.add(AuditEvent(kind="settings.tracking", detail=body.model_dump()))
     await db.commit()
     tracking.manager.wake()
+    meshtastic.source.reload()
     hub.publish("settings-updated")
     hub.publish("tracking-updated")
     return body
@@ -460,8 +567,12 @@ async def put_units_setting(
 
 
 class DeviceIn(BaseModel):
-    contact_id: uuid.UUID
+    # One of the two: a MeshCore contact, or a Meshtastic node (its node number, from
+    # GET /api/tracking/meshtastic/nodes).
+    contact_id: uuid.UUID | None = None
+    node_num: int | None = Field(default=None, ge=1, le=0xFFFFFFFF)
     label: str | None = Field(default=None, max_length=64)
+    # MeshCore: how often it's asked. Ignored for a Meshtastic node (it broadcasts on its own).
     interval_s: Interval = 60
 
 
@@ -487,41 +598,78 @@ def _check_interval(v: int | None) -> None:
 async def add_device(
     body: DeviceIn, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
-    """Track a contact: it's asked for its position every interval_s seconds (60 to 900)."""
+    """Track a contact (it's asked for its position every interval_s seconds, 60 to 900) or a
+    Meshtastic node (its position broadcasts are recorded)."""
     cfg = await app_settings.get_tracking_config(db)
     _require_enabled(cfg)
     _check_interval(body.interval_s)
-    contact = await db.get(Contact, body.contact_id)
-    if contact is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contact not found")
-    if contact.kind != 1:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "Only companions (people's radios and trackers) can be tracked",
-        )
-    if (await db.execute(select(TrackedDevice.id).where(TrackedDevice.contact_id == contact.id))).first():
-        raise HTTPException(status.HTTP_409_CONFLICT, "That contact is already tracked")
+    if (body.contact_id is None) == (body.node_num is None):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Give either contact_id or node_num")
+    contact = node = None
+    if body.contact_id is not None:
+        contact = await db.get(Contact, body.contact_id)
+        if contact is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contact not found")
+        if contact.kind != 1:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Only companions (people's radios and trackers) can be tracked",
+            )
+        if (await db.execute(select(TrackedDevice.id).where(TrackedDevice.contact_id == contact.id))).first():
+            raise HTTPException(status.HTTP_409_CONFLICT, "That contact is already tracked")
+    else:
+        node = await db.get(MeshNode, body.node_num)
+        if node is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "The Meshtastic radio hasn't heard that node")
+        if (
+            await db.execute(select(TrackedDevice.id).where(TrackedDevice.mesh_node_num == node.num))
+        ).first():
+            raise HTTPException(status.HTTP_409_CONFLICT, "That node is already tracked")
     used = set((await db.execute(select(TrackedDevice.color))).scalars().all())
     color = next(
         (c for c in tracking.COLORS if c not in used), tracking.COLORS[len(used) % len(tracking.COLORS)]
     )
     d = TrackedDevice(
-        contact_id=contact.id,
+        contact_id=contact.id if contact is not None else None,
+        mesh_node_num=node.num if node is not None else None,
         label=(body.label or "").strip() or None,
         color=color,
         interval_s=body.interval_s,
-        polling=True,
+        polling=contact is not None,
         show=True,
         status="new",
         failures=0,
     )
+    if node is not None and node.lat is not None and node.lon is not None and node.position_at is not None:
+        # Where it was last heard, so it's on the map at once (its next broadcast follows).
+        if node.position_at >= utcnow() - timedelta(hours=1):
+            d.status = "ok"
+            db.add(d)
+            await db.flush()
+            db.add(
+                TrackPosition(
+                    device_id=d.id,
+                    at=node.position_at,
+                    lat=node.lat,
+                    lon=node.lon,
+                    alt_m=node.alt_m,
+                    source="meshtastic",
+                )
+            )
+    if node is not None and node.battery_level is not None:
+        d.battery_reported_pct = node.battery_level
+    if node is not None and node.voltage is not None and 2.5 <= node.voltage <= 5.0:
+        d.battery_v = round(node.voltage, 2)
+        d.battery_max_v = d.battery_v
     db.add(d)
-    db.add(AuditEvent(kind="tracking.device_added", detail={"contact_id": str(contact.id)}))
+    detail = {"contact_id": str(contact.id)} if contact is not None else {"node_id": node.node_id}  # type: ignore[union-attr]
+    db.add(AuditEvent(kind="tracking.device_added", detail=detail))
     await db.commit()
-    tracking.manager.poll_soon(d.id)
+    if contact is not None:
+        tracking.manager.poll_soon(d.id)
     hub.publish("tracking-updated")
-    d, c, sim = await _load(db, d.id)
-    return await _device_out(db, d, c, sim, cfg.trail_minutes)
+    d, c, n, sim = await _load(db, d.id)
+    return await _device_out(db, d, c, n, sim, cfg.trail_minutes)
 
 
 @router.patch("/tracking/devices/{device_id}", response_model=TrackedDeviceOut)
@@ -532,8 +680,11 @@ async def update_device(
     db: AsyncSession = Depends(get_db),
 ):
     _check_interval(body.interval_s)
-    d, c, sim = await _load(db, device_id)
+    d, c, n, sim = await _load(db, device_id)
     fields = body.model_fields_set
+    if n is not None:
+        # A Meshtastic node broadcasts on its own: there's nothing to ask on a schedule.
+        body.interval_s = body.polling = None
     if "label" in fields:
         d.label = (body.label or "").strip() or None
     if body.color is not None:
@@ -557,18 +708,19 @@ async def update_device(
     await db.commit()
     hub.publish("tracking-updated")
     cfg = await app_settings.get_tracking_config(db)
-    d, c, sim = await _load(db, device_id)
-    return await _device_out(db, d, c, sim, cfg.trail_minutes)
+    d, c, n, sim = await _load(db, device_id)
+    return await _device_out(db, d, c, n, sim, cfg.trail_minutes)
 
 
 @router.delete("/tracking/devices/{device_id}", status_code=204)
 async def remove_device(
     device_id: uuid.UUID, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
-    """Stop tracking it and delete its positions. The contact stays."""
-    d, _, _ = await _load(db, device_id)
+    """Stop tracking it and delete its positions. The contact (or Meshtastic node) stays."""
+    d, _, n, _ = await _load(db, device_id)
     await db.delete(d)
-    db.add(AuditEvent(kind="tracking.device_removed", detail={"contact_id": str(d.contact_id)}))
+    detail = {"contact_id": str(d.contact_id)} if n is None else {"node_id": n.node_id}
+    db.add(AuditEvent(kind="tracking.device_removed", detail=detail))
     await db.commit()
     tracking.manager.forget(device_id)
     hub.publish("tracking-updated")
@@ -579,9 +731,16 @@ async def remove_device(
 async def poll_device(
     device_id: uuid.UUID, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
-    """Ask it for its position now (the answer arrives as a tracking-updated event)."""
+    """Ask it for its position now (the answer arrives as a tracking-updated event). A Meshtastic
+    tracker answers a position request at most every few minutes."""
     _require_enabled(await app_settings.get_tracking_config(db))
-    d, _, _ = await _load(db, device_id)
+    d, _, n, _ = await _load(db, device_id)
+    if n is not None:
+        try:
+            await meshtastic.source.ask_position(n.num)
+        except (MeshtasticError, ConnectionError) as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+        return {"queued": True}
     if not supervisor.connected:
         raise HTTPException(status.HTTP_409_CONFLICT, "The radio isn't connected")
     tracking.manager.poll_soon(d.id)
@@ -593,7 +752,7 @@ async def clear_positions(
     device_id: uuid.UUID, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
     """Delete its position history (e.g. before an event), keeping it tracked."""
-    d, _, _ = await _load(db, device_id)
+    d, _, _, _ = await _load(db, device_id)
     await db.execute(delete(TrackPosition).where(TrackPosition.device_id == d.id))
     await db.commit()
     hub.publish("tracking-updated")
@@ -612,7 +771,7 @@ async def export_track(
     db: AsyncSession = Depends(get_db),
 ):
     """Its positions over the last `hours` as a GPX track, e.g. to open in a mapping app."""
-    d, c, _ = await _load(db, device_id)
+    d, c, n, _ = await _load(db, device_id)
     rows = (
         (
             await db.execute(
@@ -624,7 +783,10 @@ async def export_track(
         .scalars()
         .all()
     )
-    name = d.label or c.alias or c.name or "Tracker"
+    name = (
+        d.label or (c.alias or c.name if c is not None else None) or (n.long_name if n is not None else None)
+    )
+    name = name or "Tracker"
     pts = "".join(
         f'<trkpt lat="{p.lat:.6f}" lon="{p.lon:.6f}">'
         + (f"<ele>{p.alt_m:.1f}</ele>" if p.alt_m is not None else "")

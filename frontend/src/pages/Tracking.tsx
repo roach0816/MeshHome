@@ -20,7 +20,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api, type ContactPage, type Course, type TrackedDevice, type TrackingData, type Units } from "../lib/api";
+import {
+  api,
+  type ContactPage,
+  type Course,
+  type MeshNode,
+  type TrackedDevice,
+  type TrackingData,
+  type Units,
+} from "../lib/api";
 import { baseLayer, baseLayerKey, usesOffline } from "../lib/tiles";
 import { longText, paceText, unitsFor } from "../lib/units";
 import { cx, formatDateTime } from "../lib/util";
@@ -106,10 +114,19 @@ function BatteryIcon({ d }: { d: TrackedDevice }) {
   return <Icon className="size-3.5" aria-hidden />;
 }
 
+const hopName = (h: { hash: string; name: string | null }) => h.name ?? (h.hash === "?" ? null : h.hash.toUpperCase());
+
 /** "via Hilltop · SNR 6 dB": how its latest answer reached this radio. */
 function linkText(d: TrackedDevice): string | null {
   const l = d.link;
   if (!l) return null;
+  if (l.route === "mesh") {
+    // Meshtastic: the hop count, and the last relay when the packet names it.
+    const n = l.hops.length;
+    const last = n ? hopName(l.hops[n - 1]) : null;
+    const via = n === 0 ? "heard directly" : last ? `via ${last}${n > 1 ? ` (${n} hops)` : ""}` : `${n} hop${n === 1 ? "" : "s"}`;
+    return `${via}${l.snr !== null ? ` · SNR ${l.snr.toFixed(l.snr % 1 ? 1 : 0)} dB` : ""}`;
+  }
   const near = l.hops.length ? l.hops[l.hops.length - 1] : null;
   const via = near ? `via ${near.name ?? near.hash.toUpperCase()}${l.hops.length > 1 ? ` (+${l.hops.length - 1})` : ""}` : "heard directly";
   return `${via}${l.snr !== null ? ` · SNR ${l.snr.toFixed(l.snr % 1 ? 1 : 0)} dB` : ""}`;
@@ -118,6 +135,11 @@ function linkText(d: TrackedDevice): string | null {
 function routeText(d: TrackedDevice): string | null {
   const l = d.link;
   if (!l) return null;
+  if (l.route === "mesh") {
+    const names = l.hops.map((h) => hopName(h) ?? "a relay");
+    const rssi = l.rssi !== null ? ` (RSSI ${Math.round(l.rssi)} dBm)` : "";
+    return `${[displayName(d), ...names, "this radio"].join(" → ")}${rssi}`;
+  }
   const names = l.hops.map((h) => h.name ?? h.hash.toUpperCase());
   const route = [displayName(d), ...names, "this radio"].join(" → ");
   return `${route} (${l.route === "flood" ? "by flood" : "on its route"}${l.rssi !== null ? `, RSSI ${Math.round(l.rssi)} dBm` : ""})`;
@@ -141,6 +163,14 @@ function isStale(d: TrackedDevice, now: number): boolean {
 
 function statusLine(d: TrackedDevice, now: number): { text: string; tone: "ok" | "warn" | "danger" | "muted" } {
   const pos = d.last_position ? `position ${ago(d.last_position.at, now)}` : "no position yet";
+  if (d.source === "meshtastic") {
+    if (!d.current_radio) return { text: `Meshtastic not connected · ${pos}`, tone: "muted" };
+    if (d.asking) return { text: `Asking… · ${pos}`, tone: "muted" };
+    if (!d.last_position) return { text: "Waiting for its first broadcast", tone: "muted" };
+    if (d.status === "no_answer") return { text: `No answer to the request · ${pos}`, tone: "warn" };
+    if (isStale(d, now)) return { text: `Not heard lately · ${pos}`, tone: "warn" };
+    return { text: `Position ${ago(d.last_position.at, now)}`, tone: "ok" };
+  }
   if (!d.current_radio) return { text: `On another radio · ${pos}`, tone: "muted" };
   if (d.asking) return { text: `Asking… · ${pos}`, tone: "muted" };
   if (!d.polling) return { text: `Paused · ${pos}`, tone: "muted" };
@@ -303,7 +333,7 @@ export function Tracking() {
       };
       line(displayName(dev), "font-semibold");
       if (dev.label) line(dev.name);
-      line(`${formatDateTime(last.at)} (${last.source === "advert" ? "advert" : "asked"})`);
+      line(`${formatDateTime(last.at)} (${last.source === "advert" ? "advert" : last.source === "meshtastic" ? "Meshtastic" : "asked"})`);
       line(`${last.lat.toFixed(5)}, ${last.lon.toFixed(5)}${last.alt_m !== null ? ` · ${Math.round(u.alt(last.alt_m))} ${u.altUnit}` : ""}`);
       const prog = progressText(u, dev);
       if (prog) line(prog.text);
@@ -356,6 +386,8 @@ export function Tracking() {
 
   const enabled = d?.config.enabled;
   const offlineMissing = d && d.tiles.offline && !usesOffline(d.tiles, d.offline);
+  const mt = d?.meshtastic ?? null;
+  const hasMeshCore = devices.some((x) => x.source === "meshcore");
 
   const listPanel = (
     <div className="flex h-full min-h-0 flex-col">
@@ -416,9 +448,11 @@ export function Tracking() {
           <p className="truncate text-xs text-muted">
             {!d
               ? "Loading…"
-              : `${shown.length} of ${devices.length} tracker${devices.length === 1 ? "" : "s"} shown · ${
-                  d.radio_connected ? "radio connected" : "radio not connected"
-                }${usesOffline(d.tiles, d.offline) ? " · offline map" : ""}`}
+              : `${shown.length} of ${devices.length} tracker${devices.length === 1 ? "" : "s"} shown${
+                  hasMeshCore || !mt ? ` · ${d.radio_connected ? "radio connected" : "radio not connected"}` : ""
+                }${mt ? ` · Meshtastic ${mt.state === "connected" ? "connected" : "not connected"}` : ""}${
+                  usesOffline(d.tiles, d.offline) ? " · offline map" : ""
+                }`}
           </p>
         </div>
         <Button onClick={fitAll} disabled={!d} title="Fit everything in view">
@@ -440,9 +474,26 @@ export function Tracking() {
           to add trackers.
         </p>
       )}
-      {d && enabled && !d.radio_connected && (
+      {d && enabled && !d.radio_connected && (hasMeshCore || !mt) && (
         <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-sm text-warn">
-          The radio isn't connected, so trackers aren't being asked for their position.
+          The radio isn't connected, so {mt ? "MeshCore " : ""}trackers aren't being asked for their position.
+        </p>
+      )}
+      {d && enabled && mt && mt.state !== "connected" && (
+        <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-sm text-warn">
+          {mt.detail ?? "Connecting to the Meshtastic node…"}{" "}
+          <Link to="/settings/tracking" className="underline">
+            Meshtastic settings
+          </Link>
+        </p>
+      )}
+      {d && enabled && mt?.state === "connected" && mt.channel && !mt.channel.private && (
+        <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-sm text-warn">
+          The Meshtastic radio is on the default public channel: positions arrive blurred to about 1.5 km and anyone nearby can
+          follow them.{" "}
+          <Link to="/settings/tracking" className="underline">
+            Set up a team channel
+          </Link>
         </p>
       )}
       {offlineMissing && (
@@ -497,7 +548,10 @@ export function Tracking() {
           {d && enabled && devices.length === 0 && !panel && (
             <div className="pointer-events-none absolute inset-x-0 top-6 z-[500] flex justify-center px-4">
               <div className="pointer-events-auto max-w-md rounded-xl border border-line bg-surface px-4 py-3 text-center text-sm text-muted shadow-lg">
-                <p>No trackers yet. Add the contact of a GPS tracker, and MeshHome asks it for its position on a schedule.</p>
+                <p>
+                  No trackers yet. Add the contact of a MeshCore GPS tracker (MeshHome asks it for its position on a schedule)
+                  {mt ? ", or a Meshtastic tracker the Meshtastic radio has heard (its broadcasts are recorded)" : ""}.
+                </p>
                 <Button variant="primary" className="mt-3" onClick={() => setAdding(true)}>
                   <Plus className="size-4" aria-hidden /> Add a tracker
                 </Button>
@@ -587,7 +641,7 @@ function TrackerList({
                     {linkText(dev) && <span className="block text-xs text-muted" title={routeText(dev) ?? undefined}>{linkText(dev)}</span>}
                     {sensorText(u, dev) && <span className="block text-xs text-muted">{sensorText(u, dev)}</span>}
                     <span className="block text-xs text-muted">
-                      Every {intervalLabel(dev.interval_s)}
+                      {dev.source === "meshtastic" ? `Meshtastic ${dev.node_id} · broadcasts about every ${intervalLabel(dev.interval_s)}` : `Every ${intervalLabel(dev.interval_s)}`}
                       {batteryText(dev) && (
                         <span className={cx(dev.battery_low && "font-semibold text-danger")}>
                           {` · battery ${batteryText(dev)}${dev.battery_pct !== null && dev.battery_v !== null ? ` (${dev.battery_v.toFixed(2)} V)` : ""}`}
@@ -608,8 +662,8 @@ function TrackerList({
                 <Button
                   className="min-h-9 flex-1 px-3"
                   onClick={() => onPoll(dev)}
-                  disabled={!radioConnected || dev.asking || !dev.current_radio}
-                  title="Ask for its position now"
+                  disabled={(dev.source === "meshcore" && !radioConnected) || dev.asking || !dev.current_radio}
+                  title={dev.source === "meshtastic" ? "Ask for its position now (a Meshtastic tracker answers at most every 3 minutes)" : "Ask for its position now"}
                 >
                   <RefreshCw className={cx("size-4", dev.asking && "animate-spin")} aria-hidden /> Ask now
                 </Button>
@@ -625,8 +679,12 @@ function TrackerList({
         <Plus className="size-4" aria-hidden /> Add a tracker
       </Button>
       <p className="text-xs text-muted">
-        Each tracker must share its location with this node: in the MeshCore app on the tracker, turn GPS on and set Telemetry →
-        Location to allow this node (or everyone). It also needs this node in its contacts.
+        MeshCore trackers must share their location with this node: in the MeshCore app on the tracker, turn GPS on and set
+        Telemetry → Location to allow this node (or everyone). It also needs this node in its contacts.
+      </p>
+      <p className="text-xs text-muted">
+        Meshtastic trackers need to be on the same channel as the Meshtastic radio: scan the team channel's QR code in Settings →
+        Tracking → Meshtastic into each one.
       </p>
     </div>
   );
@@ -634,17 +692,19 @@ function TrackerList({
 
 function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () => void }) {
   const qc = useQueryClient();
+  const [kind, setKind] = useState<"meshcore" | "meshtastic">(data.meshtastic && !data.radio_connected ? "meshtastic" : "meshcore");
   const [q, setQ] = useState("");
   const [label, setLabel] = useState("");
   const [interval, setIntervalS] = useState(60);
   const contacts = useQuery({
     queryKey: ["contacts", "tracking-candidates", q],
     queryFn: () => api<ContactPage>(`/api/contacts?kind=1&page_size=25&sort=last_heard&q=${encodeURIComponent(q)}`),
+    enabled: kind === "meshcore",
   });
   const tracked = new Set(data.devices.map((d) => d.contact_id));
   const add = useMutation({
-    mutationFn: (contact_id: string) =>
-      api<TrackedDevice>("/api/tracking/devices", { json: { contact_id, label: label.trim() || null, interval_s: interval } }),
+    mutationFn: (body: { contact_id: string } | { node_num: number }) =>
+      api<TrackedDevice>("/api/tracking/devices", { json: { ...body, label: label.trim() || null, interval_s: interval } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tracking"] });
       onClose();
@@ -654,19 +714,44 @@ function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () =
   return (
     <Dialog title="Add a tracker" onClose={onClose} footer={<Button onClick={onClose}>Cancel</Button>}>
       <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
+        {data.meshtastic && (
+          <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="radiogroup" aria-label="Kind of tracker">
+            {(["meshcore", "meshtastic"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={kind === k}
+                onClick={() => setKind(k)}
+                className={cx("min-h-9 flex-1 rounded-md px-3 text-sm font-medium", kind === k ? "bg-surface shadow-sm" : "text-muted")}
+              >
+                {k === "meshcore" ? "MeshCore contact" : "Meshtastic node"}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className={cx("grid gap-3", kind === "meshcore" && "sm:grid-cols-[1fr_9rem]")}>
           <Field label="Label (optional)" htmlFor="trk-label" hint="Shown instead of its name, e.g. who's carrying it.">
             <Input id="trk-label" value={label} maxLength={64} placeholder="Leg 1 – Sam" onChange={(e) => setLabel(e.target.value)} />
           </Field>
-          <Field label="Ask every" htmlFor="trk-interval">
-            <Select
-              id="trk-interval"
-              value={interval}
-              options={data.intervals.map((s) => ({ value: s, label: intervalLabel(s) }))}
-              onChange={setIntervalS}
-            />
-          </Field>
+          {kind === "meshcore" && (
+            <Field label="Ask every" htmlFor="trk-interval">
+              <Select
+                id="trk-interval"
+                value={interval}
+                options={data.intervals.map((s) => ({ value: s, label: intervalLabel(s) }))}
+                onChange={setIntervalS}
+              />
+            </Field>
+          )}
         </div>
+        {kind === "meshtastic" ? (
+          <>
+            <ErrorText error={add.error} />
+            <MeshNodePicker onPick={(n) => add.mutate({ node_num: n.num })} busy={add.isPending} />
+          </>
+        ) : (
+          <>
         <Field label="Contact" htmlFor="trk-search" hint="Companions on this radio, most recently heard first.">
           <Input id="trk-search" type="search" value={q} placeholder="Search by name" onChange={(e) => setQ(e.target.value)} />
         </Field>
@@ -677,7 +762,7 @@ function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () =
               <button
                 type="button"
                 disabled={add.isPending}
-                onClick={() => add.mutate(c.id)}
+                onClick={() => add.mutate({ contact_id: c.id })}
                 className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
               >
                 <span className="min-w-0 flex-1">
@@ -693,8 +778,61 @@ function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () =
           ))}
           {contacts.data && items.length === 0 && <li className="px-3 py-3 text-sm text-muted">No companions to add.</li>}
         </ul>
+          </>
+        )}
       </div>
     </Dialog>
+  );
+}
+
+/** Meshtastic nodes the Meshtastic radio has heard, trackers first, to add one. */
+function MeshNodePicker({ onPick, busy }: { onPick: (n: MeshNode) => void; busy: boolean }) {
+  const [q, setQ] = useState("");
+  const nodes = useQuery({
+    queryKey: ["meshtastic-nodes"],
+    queryFn: () => api<MeshNode[]>("/api/tracking/meshtastic/nodes"),
+  });
+  const needle = q.trim().toLowerCase();
+  const items = (nodes.data ?? [])
+    .filter((n) => !n.tracked && !n.is_self)
+    .filter((n) => !needle || [n.long_name, n.short_name, n.node_id].some((v) => v?.toLowerCase().includes(needle)))
+    .sort((a, b) => Number(b.role === "TRACKER") - Number(a.role === "TRACKER"));
+  return (
+    <>
+      <Field label="Meshtastic node" htmlFor="trk-mt-search" hint="Heard by the Meshtastic radio, most recently heard first.">
+        <Input id="trk-mt-search" type="search" value={q} placeholder="Search by name or !id" onChange={(e) => setQ(e.target.value)} />
+      </Field>
+      <ErrorText error={nodes.error} />
+      <ul className="max-h-72 divide-y divide-line overflow-y-auto rounded-xl border border-line">
+        {items.map((n) => (
+          <li key={n.num}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPick(n)}
+              className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{n.long_name || n.short_name || n.node_id}</span>
+                <span className="block truncate text-xs text-muted">
+                  {n.node_id}
+                  {n.role && n.role !== "CLIENT" ? ` · ${n.role.toLowerCase().replace(/_/g, " ")}` : ""}
+                  {` · ${n.last_heard_at ? `heard ${ago(n.last_heard_at, Date.now())}` : "never heard"}`}
+                  {n.has_position ? " · has a position" : ""}
+                  {n.simulated && " · simulated"}
+                </span>
+              </span>
+              <Plus className="size-4 shrink-0 text-muted" aria-hidden />
+            </button>
+          </li>
+        ))}
+        {nodes.data && items.length === 0 && (
+          <li className="px-3 py-3 text-sm text-muted">
+            No nodes to add yet. A tracker shows up here once the Meshtastic radio hears it (on the same channel).
+          </li>
+        )}
+      </ul>
+    </>
   );
 }
 
@@ -721,7 +859,10 @@ function EditTrackerDialog({
     mutationFn: () =>
       api(`/api/tracking/devices/${device.id}`, {
         method: "PATCH",
-        json: { label: label.trim() || null, color, interval_s: interval, polling, course_id: courseId || null },
+        json:
+          device.source === "meshcore"
+            ? { label: label.trim() || null, color, interval_s: interval, polling, course_id: courseId || null }
+            : { label: label.trim() || null, color, course_id: courseId || null },
       }),
     onSuccess: () => {
       done();
@@ -782,16 +923,25 @@ function EditTrackerDialog({
             onChange={setCourseId}
           />
         </Field>
-        <Field label="Ask for its position every" htmlFor="edit-interval">
-          <Select id="edit-interval" value={interval} options={intervals.map((s) => ({ value: s, label: intervalLabel(s) }))} onChange={setIntervalS} />
-        </Field>
-        <label className="flex cursor-pointer items-start gap-3">
-          <input type="checkbox" checked={polling} onChange={(e) => setPolling(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[var(--accent)]" />
-          <span>
-            <span className="block text-sm font-medium">Ask for its position</span>
-            <span className="block text-xs text-muted">Off: no requests are sent; positions from its adverts are still recorded.</span>
-          </span>
-        </label>
+        {device.source === "meshcore" ? (
+          <>
+            <Field label="Ask for its position every" htmlFor="edit-interval">
+              <Select id="edit-interval" value={interval} options={intervals.map((s) => ({ value: s, label: intervalLabel(s) }))} onChange={setIntervalS} />
+            </Field>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" checked={polling} onChange={(e) => setPolling(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[var(--accent)]" />
+              <span>
+                <span className="block text-sm font-medium">Ask for its position</span>
+                <span className="block text-xs text-muted">Off: no requests are sent; positions from its adverts are still recorded.</span>
+              </span>
+            </label>
+          </>
+        ) : (
+          <p className="text-xs text-muted">
+            Meshtastic node {device.node_id}. It broadcasts its position on its own (set how often on the tracker, in the
+            Meshtastic app: Position → broadcast interval and smart position).
+          </p>
+        )}
         <ErrorText error={save.error ?? clear.error ?? remove.error} />
         <div className="flex flex-wrap gap-2 border-t border-line pt-4">
           <a

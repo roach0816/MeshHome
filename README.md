@@ -29,7 +29,8 @@ tablet or computer on your network.
   node that shares its position.
 - **Tracking:** follow GPS trackers (such as a relay runner's) on their own map with your course from
   GPX files, asking each for its position as often as every minute, and save an offline map for
-  venues without internet.
+  venues without internet. Meshtastic trackers work too, heard through a Meshtastic node or the
+  radio HAT running Meshtastic.
 - **Your radio's settings** from the browser: identity and location, region presets, channels (with
   QR codes and region scopes), routing and telemetry.
 - **Repeater administration:** log in to your repeaters and room servers to read their status, use

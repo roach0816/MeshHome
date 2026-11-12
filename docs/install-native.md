@@ -77,7 +77,8 @@ root-owned helper units (`meshhome-update`, `meshhome-config`), which re-check e
 sudo meshhome status    diagnostic report (start here when something is wrong)
 sudo meshhome https     set up HTTPS (or `https --disable` to go back to plain HTTP)
 sudo meshhome security-updates   turn on automatic OS security updates
-sudo meshhome radio-hat set up the RAK6421 radio HAT (also: radio-hat remove | restart | logs)
+sudo meshhome radio-hat set up the RAK6421 radio HAT, or switch it between MeshCore and Meshtastic
+                        (setup --firmware meshcore|meshtastic; also: remove | restart | logs)
 meshhome logs [-f]      application log
 sudo meshhome update    upgrade to the latest release (same wizard, with a database dump)
 sudo meshhome backup    dump the database now (for repairs; see docs/backup-restore.md)
@@ -139,8 +140,33 @@ Linux, which drives the radio over SPI and serves the standard MeshCore companio
   channels; `uninstall --purge` deletes them. [Backups](backup-restore.md) include them too.
 - **Requirements:** a Raspberry Pi 4 or 5 running **64-bit Raspberry Pi OS 13 "Trixie"** (or
   Debian 13). ZephCore's builds need glibc 2.38, so Raspberry Pi OS 12 "Bookworm" is not supported;
-  MeshHome explains this instead of offering setup. Do not install Meshtastic (`meshtasticd`): it
-  would take over the radio.
+  MeshHome explains this instead of offering setup. Don't install Meshtastic (`meshtasticd`)
+  yourself: it would take over the radio. To run Meshtastic on the HAT, let MeshHome switch it (below).
+
+### Meshtastic on the HAT
+
+For Meshtastic trackers ([features](features.md#meshtastic-trackers)), the HAT can run Meshtastic
+instead of ZephCore: **Settings → Radio connection → Radio HAT on this Pi → Switch to Meshtastic**,
+or `sudo meshhome radio-hat setup --firmware meshtastic [--slot 1|2] [--module 13300|13302]`.
+
+- **What it does:**
+  - Adds Meshtastic's apt repository (`download.opensuse.org`, its `beta` channel) after checking its
+    signing key's fingerprint against `deploy/native/meshtasticd.lock`. The key is trusted for that
+    repository only. Then installs `meshtasticd` with apt, which keeps it up to date.
+  - Stops ZephCore (its identity, contacts and channels are kept) and turns off MeshHome's "Radio HAT"
+    radio mode, remembering it for switching back.
+  - Copies meshtasticd's own settings for the RAK6421 with your module and slot, names the network
+    interface its node number comes from (Ethernet, else Wi-Fi), and adds a systemd drop-in so only
+    this Pi can reach its API (port 4403, no password) and it waits for the SPI bus.
+- **Switching back** (*Switch to MeshCore*) stops and masks meshtasticd, starts ZephCore again, and
+  restores the radio mode. meshtasticd's identity and channels stay in `/var/lib/meshtasticd`.
+- **Requirements:** 64-bit Raspberry Pi OS or Debian 12 or 13. meshtasticd is GPL-3.0 and not part
+  of MeshHome, which talks to it over its API only.
+- **Not verified on real hardware yet:** the setup was tested in a Debian 13 container (repository,
+  key check, install, switching both ways, removal), but meshtasticd has not yet driven a real HAT
+  from it.
+- [Backups](backup-restore.md) of the system settings include ZephCore's identity but not
+  meshtasticd's.
 
 The radio HAT has been tested end to end in Debian 13 containers against the real ZephCore software,
 but not yet on real RAK6421 hardware. Treat the radio side as unverified until it has run on a real

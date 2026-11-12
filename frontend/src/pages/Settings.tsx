@@ -360,7 +360,8 @@ function RadioSection() {
       Number(interval) !== cfg.data.sim_interval_seconds);
   // The HAT option is offered on a Raspberry Pi 4/5 native install (or when it is already chosen).
   const offerHat = !!hat.data?.board || cfg.data?.mode === "hat";
-  const hatUsable = hat.data && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
+  // Usable as the MeshCore radio only while it runs ZephCore (not Meshtastic).
+  const hatUsable = hat.data && hat.data.firmware !== "meshtastic" && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
 
   return (
     <Section

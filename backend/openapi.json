@@ -2549,7 +2549,7 @@
           "tracking"
         ],
         "summary": "Add Device",
-        "description": "Track a contact: it's asked for its position every interval_s seconds (60 to 900).",
+        "description": "Track a contact (it's asked for its position every interval_s seconds, 60 to 900) or a\nMeshtastic node (its position broadcasts are recorded).",
         "operationId": "add_device_api_tracking_devices_post",
         "requestBody": {
           "content": {
@@ -2642,7 +2642,7 @@
           "tracking"
         ],
         "summary": "Remove Device",
-        "description": "Stop tracking it and delete its positions. The contact stays.",
+        "description": "Stop tracking it and delete its positions. The contact (or Meshtastic node) stays.",
         "operationId": "remove_device_api_tracking_devices__device_id__delete",
         "parameters": [
           {
@@ -2679,7 +2679,7 @@
           "tracking"
         ],
         "summary": "Poll Device",
-        "description": "Ask it for its position now (the answer arrives as a tracking-updated event).",
+        "description": "Ask it for its position now (the answer arrives as a tracking-updated event). A Meshtastic\ntracker answers a position request at most every few minutes.",
         "operationId": "poll_device_api_tracking_devices__device_id__poll_post",
         "parameters": [
           {
@@ -2977,6 +2977,176 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/meshtastic": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Get Meshtastic Settings",
+        "operationId": "get_meshtastic_settings_api_settings_meshtastic_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshtasticConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Put Meshtastic Settings",
+        "description": "Where Meshtastic trackers are heard: off, the radio HAT on this Pi (meshtasticd), a node on\nthe network (host, port 4403) or a simulated node. Runs while tracking is on.",
+        "operationId": "put_meshtastic_settings_api_settings_meshtastic_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeshtasticConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshtasticConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/meshtastic": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Get Meshtastic",
+        "description": "The Meshtastic node MeshHome is connected to (None while Meshtastic is off), and the LoRa\nregions and presets to choose from when setting up the team channel.",
+        "operationId": "get_meshtastic_api_tracking_meshtastic_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshtasticOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/meshtastic/nodes": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "List Mesh Nodes",
+        "description": "The nodes the Meshtastic radio has heard, most recently heard first (to add as trackers).",
+        "operationId": "list_mesh_nodes_api_tracking_meshtastic_nodes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MeshNodeOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Mesh Nodes Api Tracking Meshtastic Nodes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/meshtastic/channel": {
+      "post": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Setup Team Channel",
+        "description": "Give the Meshtastic node a new private primary channel (a random key, positions at full\nprecision) and set its region and preset. Scan the channel's QR code (GET …/channel-url) into\neach tracker to join it. Changing the region or preset restarts the node.",
+        "operationId": "setup_team_channel_api_tracking_meshtastic_channel_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamChannelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracking/meshtastic/channel-url": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Get Channel Url",
+        "operationId": "get_channel_url_api_tracking_meshtastic_channel_url_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelUrlOut"
                 }
               }
             }
@@ -5779,6 +5949,37 @@
         "type": "object",
         "title": "ChannelScopeIn"
       },
+      "ChannelUrlOut": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ChannelUrlOut"
+      },
+      "Choice": {
+        "properties": {
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "name"
+        ],
+        "title": "Choice"
+      },
       "CliIn": {
         "properties": {
           "command": {
@@ -6998,9 +7199,29 @@
       "DeviceIn": {
         "properties": {
           "contact_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Contact Id"
+          },
+          "node_num": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4294967295.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Num"
           },
           "label": {
             "anyOf": [
@@ -7021,9 +7242,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "contact_id"
-        ],
         "title": "DeviceIn"
       },
       "DevicePatch": {
@@ -7718,6 +7936,360 @@
           "home_name"
         ],
         "title": "Me"
+      },
+      "MeshNodeOut": {
+        "properties": {
+          "num": {
+            "type": "integer",
+            "title": "Num"
+          },
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "long_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Name"
+          },
+          "short_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Name"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "last_heard_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heard At"
+          },
+          "has_position": {
+            "type": "boolean",
+            "title": "Has Position"
+          },
+          "position_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position At"
+          },
+          "battery_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Level"
+          },
+          "hops_away": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hops Away"
+          },
+          "snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr"
+          },
+          "simulated": {
+            "type": "boolean",
+            "title": "Simulated"
+          },
+          "tracked": {
+            "type": "boolean",
+            "title": "Tracked"
+          },
+          "is_self": {
+            "type": "boolean",
+            "title": "Is Self"
+          }
+        },
+        "type": "object",
+        "required": [
+          "num",
+          "node_id",
+          "long_name",
+          "short_name",
+          "role",
+          "last_heard_at",
+          "has_position",
+          "position_at",
+          "battery_level",
+          "hops_away",
+          "snr",
+          "simulated",
+          "tracked",
+          "is_self"
+        ],
+        "title": "MeshNodeOut"
+      },
+      "MeshtasticChannel": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "private": {
+            "type": "boolean",
+            "title": "Private"
+          },
+          "precise": {
+            "type": "boolean",
+            "title": "Precise"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "private",
+          "precise"
+        ],
+        "title": "MeshtasticChannel"
+      },
+      "MeshtasticConfig": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "off",
+              "hat",
+              "network",
+              "simulated"
+            ],
+            "title": "Source",
+            "default": "off"
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 253,
+            "title": "Host",
+            "default": ""
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 4403
+          }
+        },
+        "type": "object",
+        "title": "MeshtasticConfig"
+      },
+      "MeshtasticNodeInfo": {
+        "properties": {
+          "num": {
+            "type": "integer",
+            "title": "Num"
+          },
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "long_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Name"
+          },
+          "short_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Name"
+          },
+          "firmware": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware"
+          }
+        },
+        "type": "object",
+        "required": [
+          "num",
+          "node_id",
+          "long_name",
+          "short_name",
+          "firmware"
+        ],
+        "title": "MeshtasticNodeInfo"
+      },
+      "MeshtasticOut": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeshtasticStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            },
+            "type": "array",
+            "title": "Regions"
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            },
+            "type": "array",
+            "title": "Presets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "regions",
+          "presets"
+        ],
+        "title": "MeshtasticOut"
+      },
+      "MeshtasticStatus": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "node": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeshtasticNodeInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeshtasticChannel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "state",
+          "detail",
+          "node",
+          "region",
+          "preset",
+          "channel"
+        ],
+        "title": "MeshtasticStatus"
       },
       "MessageOut": {
         "properties": {
@@ -8468,6 +9040,33 @@
               "reboot"
             ],
             "title": "Action"
+          },
+          "firmware": {
+            "type": "string",
+            "enum": [
+              "meshcore",
+              "meshtastic"
+            ],
+            "title": "Firmware",
+            "default": "meshcore"
+          },
+          "slot": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Slot",
+            "default": 1
+          },
+          "module": {
+            "type": "string",
+            "enum": [
+              "13300",
+              "13302"
+            ],
+            "title": "Module",
+            "default": "13300"
           }
         },
         "type": "object",
@@ -9394,6 +9993,44 @@
         ],
         "title": "SubscriptionOut"
       },
+      "TeamChannelIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 11,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Name"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TeamChannelIn"
+      },
       "TelemetryIn": {
         "properties": {
           "base": {
@@ -9671,14 +10308,44 @@
             "format": "uuid",
             "title": "Id"
           },
-          "contact_id": {
+          "source": {
             "type": "string",
-            "format": "uuid",
+            "title": "Source",
+            "default": "meshcore"
+          },
+          "contact_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Contact Id"
           },
           "public_key": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Public Key"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
           },
           "name": {
             "type": "string",
@@ -9968,6 +10635,16 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Offline"
+          },
+          "meshtastic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeshtasticStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

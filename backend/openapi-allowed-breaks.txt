@@ -1,0 +1,6 @@
+GET /api/tracking response property `devices/items/contact_id` list-of-types was widened by adding types `null` to media type `application/json` of response `200`
+GET /api/tracking response property `devices/items/public_key` list-of-types was widened by adding types `null` to media type `application/json` of response `200`
+POST /api/tracking/devices response property `contact_id` list-of-types was widened by adding types `null` to media type `application/json` of response `201`
+POST /api/tracking/devices response property `public_key` list-of-types was widened by adding types `null` to media type `application/json` of response `201`
+PATCH /api/tracking/devices/{device_id} response property `contact_id` list-of-types was widened by adding types `null` to media type `application/json` of response `200`
+PATCH /api/tracking/devices/{device_id} response property `public_key` list-of-types was widened by adding types `null` to media type `application/json` of response `200`

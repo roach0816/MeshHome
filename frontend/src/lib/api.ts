@@ -366,9 +366,17 @@ export interface SetupStatus {
   radio_hat_ready?: boolean;
 }
 
+export type HatFirmware = "meshcore" | "meshtastic";
+
 export interface RadioHatInfo {
   available: boolean;
   unavailable_reason: string | null;
+  firmware: HatFirmware;
+  available_firmware: Record<HatFirmware, boolean>;
+  unavailable_reasons: Record<HatFirmware, string | null>;
+  meshtastic_version: string | null;
+  meshtastic_module: string | null;
+  meshtastic_slot: number | null;
   phase: "absent" | "checking" | "installing" | "rebooting" | "needs_reboot" | "ready" | "stopped";
   model: string | null;
   board: "pi4" | "pi5" | null;
@@ -758,15 +766,18 @@ export interface TrackPoint {
   lat: number;
   lon: number;
   alt_m: number | null;
-  source: "telemetry" | "advert";
+  source: "telemetry" | "advert" | "meshtastic";
 }
 
 export type TrackStatus = "ok" | "no_position" | "no_answer" | "error" | "new";
 
 export interface TrackedDevice {
   id: string;
-  contact_id: string;
-  public_key: string;
+  /** "meshcore": a contact asked on a schedule; "meshtastic": a node whose broadcasts are recorded. */
+  source: "meshcore" | "meshtastic";
+  contact_id: string | null;
+  public_key: string | null;
+  node_id: string | null;
   name: string;
   label: string | null;
   color: string;
@@ -817,7 +828,7 @@ export interface TrackPace {
 
 export interface ReplyLink {
   at: string;
-  route: "direct" | "flood";
+  route: "direct" | "flood" | "mesh";
   hops: { hash: string; name: string | null }[];
   snr: number | null;
   rssi: number | null;
@@ -858,6 +869,48 @@ export interface TrackingData {
   devices: TrackedDevice[];
   tiles: MapConfig;
   offline: OfflineSaved;
+  meshtastic: MeshtasticStatus | null;
+}
+
+export type MeshtasticSource = "off" | "hat" | "network" | "simulated";
+
+export interface MeshtasticConfig {
+  source: MeshtasticSource;
+  host: string;
+  port: number;
+}
+
+export interface MeshtasticStatus {
+  source: MeshtasticSource;
+  state: "off" | "connecting" | "connected" | "error";
+  detail: string | null;
+  node: { num: number; node_id: string; long_name: string | null; short_name: string | null; firmware: string | null } | null;
+  region: string | null;
+  preset: string | null;
+  channel: { name: string; private: boolean; precise: boolean } | null;
+}
+
+export interface MeshtasticInfo {
+  status: MeshtasticStatus | null;
+  regions: { value: number; name: string }[];
+  presets: { value: number; name: string }[];
+}
+
+export interface MeshNode {
+  num: number;
+  node_id: string;
+  long_name: string | null;
+  short_name: string | null;
+  role: string | null;
+  last_heard_at: string | null;
+  has_position: boolean;
+  position_at: string | null;
+  battery_level: number | null;
+  hops_away: number | null;
+  snr: number | null;
+  simulated: boolean;
+  tracked: boolean;
+  is_self: boolean;
 }
 
 export interface Course {

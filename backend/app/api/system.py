@@ -294,9 +294,15 @@ async def network_status(ctx: AuthContext = Depends(require_auth)):
 
 
 class RadioHatAction(BaseModel):
-    # install: download and set up ZephCore; remove: uninstall it (the radio's identity is kept);
-    # restart: restart the radio service; reboot: restart the Pi (needed once after SPI is enabled).
+    # install: set up the HAT with `firmware` (or switch it to that): "meshcore" downloads and sets
+    # up ZephCore, MeshHome's radio; "meshtastic" installs meshtasticd for Meshtastic trackers, for
+    # the RAK `module` in IO `slot`. Switching keeps the other one's identity. remove: uninstall
+    # (the radio's identity is kept); restart: restart the radio service; reboot: restart the Pi
+    # (needed once after SPI is enabled).
     action: Literal["install", "remove", "restart", "reboot"]
+    firmware: Literal["meshcore", "meshtastic"] = "meshcore"
+    slot: Literal[1, 2] = 1
+    module: Literal["13300", "13302"] = "13300"
 
 
 @router.get("/radio-hat")
@@ -320,13 +326,48 @@ async def radio_hat_action(
             status.HTTP_409_CONFLICT, "Another system change is in progress; try again shortly"
         )
     info = await radio_hat.info()
-    if body.action == "install" and not info["available"]:
+    if body.action == "install" and not info["available_firmware"].get(body.firmware):
         raise HTTPException(
-            status.HTTP_409_CONFLICT, info["unavailable_reason"] or "The radio HAT is not available"
+            status.HTTP_409_CONFLICT,
+            info["unavailable_reasons"].get(body.firmware) or "The radio HAT is not available",
         )
     if body.action in ("remove", "restart") and not info["service"].get("installed"):
         raise HTTPException(status.HTTP_409_CONFLICT, "The radio HAT software is not set up")
-    system_config.write_request({"action": f"hat-{body.action}" if body.action != "reboot" else "reboot"})
-    db.add(AuditEvent(kind=f"radio_hat.{body.action}", detail={}))
+    request: dict = {"action": f"hat-{body.action}" if body.action != "reboot" else "reboot"}
+    detail: dict = {}
+    if body.action == "install":
+        request.update(firmware=body.firmware, slot=str(body.slot), module=body.module)
+        detail = {"firmware": body.firmware, "slot": body.slot, "module": body.module}
+    system_config.write_request(request)
+    if body.action == "install":
+        await _switch_radio_modes(db, body.firmware)
+    db.add(AuditEvent(kind=f"radio_hat.{body.action}", detail=detail))
     await db.commit()
     return {"accepted": True}
+
+
+async def _switch_radio_modes(db: AsyncSession, firmware: str) -> None:
+    """The HAT runs one program at a time. With Meshtastic, MeshHome's MeshCore radio can't be the
+    HAT: that mode is turned off (and remembered), and Meshtastic trackers are heard through the
+    HAT. Back on MeshCore, the remembered mode returns."""
+    from app.radio.supervisor import supervisor
+    from app.services import app_settings, meshtastic
+
+    radio = await app_settings.get_radio_config(db)
+    mesh = await app_settings.get_meshtastic_config(db)
+    switch = await app_settings.get_raw(db, app_settings.HAT_SWITCH_KEY) or {}
+    if firmware == "meshtastic":
+        if radio.mode == "hat":
+            await app_settings.put_raw(db, app_settings.HAT_SWITCH_KEY, {"radio_mode": "hat"})
+            await app_settings.put_radio_config(db, radio.model_copy(update={"mode": "none"}))
+            supervisor.reload()
+        if mesh.source != "hat":
+            await app_settings.put_meshtastic_config(db, mesh.model_copy(update={"source": "hat"}))
+    else:
+        if switch.get("radio_mode") == "hat" and radio.mode == "none":
+            await app_settings.put_radio_config(db, radio.model_copy(update={"mode": "hat"}))
+            supervisor.reload()
+        await app_settings.put_raw(db, app_settings.HAT_SWITCH_KEY, {})
+        if mesh.source == "hat":
+            await app_settings.put_meshtastic_config(db, mesh.model_copy(update={"source": "off"}))
+    meshtastic.source.reload()

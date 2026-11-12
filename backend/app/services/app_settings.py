@@ -155,6 +155,30 @@ class TrackingConfig(BaseModel):
     trail_minutes: int = Field(default=30, ge=0, le=1440)
 
 
+# Meshtastic trackers (services/meshtastic.py): where MeshHome hears them. "hat": meshtasticd on
+# this Pi's radio HAT (127.0.0.1:4403, set up by the native installer); "network": a Meshtastic node
+# with Wi-Fi or Ethernet (its API on TCP port 4403); "simulated": a simulated node and trackers.
+MeshtasticSource = Literal["off", "hat", "network", "simulated"]
+
+
+class MeshtasticConfig(BaseModel):
+    source: MeshtasticSource = "off"
+    host: str = Field(default="", max_length=253)
+    port: int = Field(default=4403, ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def _strip_host(cls, v: str) -> str:
+        v = v.strip()
+        if any(c.isspace() for c in v) or "/" in v:
+            raise ValueError("Enter a hostname or IP address only (no scheme or path)")
+        return v
+
+
+MESHTASTIC_KEY = "meshtastic"
+# Internal: the MeshCore radio mode from before the radio HAT was switched to Meshtastic, restored
+# when it's switched back (api/system.py).
+HAT_SWITCH_KEY = "radio_hat_switch"
 SENSORS_KEY = "sensors"
 TRACKING_KEY = "tracking"
 UNITS_KEY = "units"
@@ -282,6 +306,15 @@ async def get_sensors_config(db: AsyncSession) -> SensorsConfig:
 async def put_sensors_config(db: AsyncSession, cfg: SensorsConfig) -> None:
     await _put(db, SENSORS_KEY, cfg.model_dump())
     await put_units(db, UnitsConfig(units=cfg.units))
+
+
+async def get_meshtastic_config(db: AsyncSession) -> MeshtasticConfig:
+    raw = await _get(db, MESHTASTIC_KEY)
+    return MeshtasticConfig.model_validate(raw) if raw else MeshtasticConfig()
+
+
+async def put_meshtastic_config(db: AsyncSession, cfg: MeshtasticConfig) -> None:
+    await _put(db, MESHTASTIC_KEY, cfg.model_dump())
 
 
 async def get_tracking_config(db: AsyncSession) -> TrackingConfig:

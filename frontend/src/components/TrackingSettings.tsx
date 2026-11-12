@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type TrackingConfig, type Units, type UnitsConfig } from "../lib/api";
 import { useTrackingSettings } from "../pages/Shell";
+import { MeshtasticSection } from "./MeshtasticSettings";
 import { ErrorText, Field } from "./ui";
 import { Section, Select } from "./SettingsKit";
 
@@ -52,6 +53,11 @@ export function TrackingSection() {
           <p>
             On each tracker, in the MeshCore app: turn GPS on, set Telemetry → Location to allow this node (flag it in the
             tracker's contacts) or everyone, and make sure this node is in its contacts.
+          </p>
+          <p>
+            Meshtastic trackers broadcast their position on their own, so nothing is asked: MeshHome records what it hears through a
+            Meshtastic radio (the radio HAT running Meshtastic, or a node on the network). They need to share a channel with it:
+            set up a private team channel below and scan its QR code into each tracker.
           </p>
         </>
       }
@@ -116,6 +122,7 @@ export function TrackingSection() {
                   </span>
                 </span>
               </label>
+              <MeshtasticSection />
               <p className="text-sm">
                 <Link to="/tracking" className="text-accent underline">
                   Open the tracking map

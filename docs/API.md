@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.0.20**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.1.0**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -628,24 +628,47 @@ Also on each device (1.0.20):
 | `link` | How its latest answer reached the radio: `{"at", "route", "hops": [{"hash", "name"}], "snr", "rssi"}`. `route` is `flood` or `direct` (its stored route); `hops` start at the tracker's end, and an empty list means heard directly. `name` is the contact whose key starts with `hash`, when only one does. `null` when the radio didn't log the packet. |
 | `sensors` | Its latest environment readings, when it shares them: `{"at", "temp_c", "pressure_hpa", "baro_alt_m"}`, or `null`. |
 
+Meshtastic trackers (1.1.0): `source` is `meshcore` (a contact asked on a schedule) or `meshtastic`
+(a Meshtastic node whose position broadcasts are recorded). A Meshtastic tracker has `node_id`
+(`"!a1b2c3d4"`) and **`contact_id` and `public_key` are `null`**. Its `interval_s` is about how often
+it has been broadcasting, `polling` is `false`, `battery_pct` is what the tracker reports, positions
+have `source` `meshtastic`, and its `link` has `route` `mesh`: one `hops` entry per relay, of which
+only the last is known (`hash` is the low byte of its node number, named from the node list), the
+others `"?"`. `GET /api/tracking` also has `meshtastic`: `null` while that's off, otherwise
+`{"source", "state", "detail", "node", "region", "preset", "channel": {"name", "private", "precise"}}`.
+
 #### `POST /api/tracking/devices` — write
 
 `{"contact_id": "…", "label": "Leg 1 – Sam", "interval_s": 60}` tracks a companion contact (`201`,
-the device). It's asked at once, then every `interval_s` seconds. `409` if it's already tracked.
+the device). It's asked at once, then every `interval_s` seconds. `{"node_num": 3787587585, "label": …}`
+tracks a Meshtastic node instead (from `GET /api/tracking/meshtastic/nodes`; `404` if it hasn't been
+heard). `409` if it's already tracked; `422` without exactly one of the two.
 
 #### `PATCH /api/tracking/devices/{id}` — write
 
 Any of `label` (`null` or empty clears it), `color` (`#rrggbb`), `interval_s`, `polling`, `show`,
 `course_id` (`null`: pick the course from its position; `404` for a course that doesn't exist).
+`interval_s` and `polling` are ignored for a Meshtastic tracker.
 
 #### Other device requests — write (the GPX export is read)
 
 | Request | Does |
 | --- | --- |
-| `POST /api/tracking/devices/{id}/poll` | Ask it for its position now (`202`); the answer arrives as a `tracking-updated` event. `409` if the radio isn't connected. |
+| `POST /api/tracking/devices/{id}/poll` | Ask it for its position now (`202`); the answer arrives as a `tracking-updated` event. `409` if the radio (or, for a Meshtastic tracker, the Meshtastic node) isn't connected. A Meshtastic tracker answers a position request at most every 3 minutes. |
 | `DELETE /api/tracking/devices/{id}/positions` | Delete its position history, keeping it tracked (`204`). |
 | `DELETE /api/tracking/devices/{id}` | Stop tracking it and delete its positions; the contact stays (`204`). |
 | `GET /api/tracking/devices/{id}/track.gpx?hours=48` | Its positions over the last `hours` (1–720) as a GPX track. |
+
+#### Meshtastic
+
+| Request | Does |
+| --- | --- |
+| `GET /api/settings/meshtastic` — read | `{"source", "host", "port"}`: where Meshtastic trackers are heard. `source` is `off`, `hat` (meshtasticd on this Pi's radio HAT, 127.0.0.1:4403), `network` (a node's API at `host`:`port`, 4403 by default) or `simulated`. Runs while tracking is on. |
+| `PUT /api/settings/meshtastic` | The same object (signed-in browser only). `422` for `network` without a `host`. |
+| `GET /api/tracking/meshtastic` — read | `{"status", "regions", "presets"}`: the connection (as in `GET /api/tracking`), and the LoRa regions and modem presets as `{"value", "name"}`. |
+| `GET /api/tracking/meshtastic/nodes` — read | The nodes the Meshtastic radio has heard, most recent first: `num`, `node_id`, `long_name`, `short_name`, `role` (`CLIENT`, `ROUTER`, `TRACKER`, …), `last_heard_at`, `has_position`, `position_at`, `battery_level` (101: external power), `hops_away`, `snr`, `simulated`, `tracked`, `is_self`. |
+| `POST /api/tracking/meshtastic/channel` | `{"name", "region", "preset"}` (signed-in browser only): give the node a new private primary channel (random key, positions at full precision) and set its region and preset (`202`). Changing the region or preset restarts the node. `409` if it isn't connected or refuses. |
+| `GET /api/tracking/meshtastic/channel-url` | The Meshtastic share link (`{"url"}`) of the node's primary channel and LoRa settings, as its QR code holds it. It contains the channel key; signed-in browser only. |
 
 #### Courses
 
@@ -680,7 +703,7 @@ the map settings.
 | `GET /api/radio/channels/hashtag-key?name=%23hikers` | The key of a public `#hashtag` channel, derived from its name: `{"name", "hex", "base64"}`. |
 | `GET /api/system/update` | Installed version and whether an update is available. |
 | `GET /api/radio/firmware` | The radio's MeshCore firmware compared with MeshCore's latest companion release: `{"available", "model", "current_version", "latest": {"version", "published_at", "notes_url"}, "up_to_date"}`. `up_to_date` is `null` when unknown; `available: false` (with a `reason`) for the simulated radio or the radio HAT. |
-| `GET /api/system/radio-hat` | Raspberry Pi installs: the optional radio HAT (RAK6421 run by ZephCore): `phase` (`absent`, `installing`, `needs_reboot`, `ready`, `stopped`, …), `available`, Pi `model`, `installed_version`, and the service state. |
+| `GET /api/system/radio-hat` | Raspberry Pi installs: the optional radio HAT (RAK6421): `firmware` (`meshcore`: ZephCore, MeshHome's radio; `meshtastic`: meshtasticd, for Meshtastic trackers), `available_firmware` and `unavailable_reasons` per firmware, `phase` (`absent`, `installing`, `needs_reboot`, `ready`, `stopped`, …), `available`, Pi `model`, `installed_version` (ZephCore), `meshtastic_version`, `meshtastic_module`, `meshtastic_slot`, and the service state. `POST` (signed-in browser only) takes `{"action": "install", "firmware": "meshtastic", "slot": 1, "module": "13300"}` to set it up or switch it, or `remove`, `restart`, `reboot`. |
 
 `PUT /api/settings/notifications`, `PUT /api/settings/map` and `PUT /api/settings/routing` are
 **write** and take the same shape they return.
@@ -689,7 +712,7 @@ the map settings.
 
 `/api/auth/*` (except `GET /api/auth/me`, which returns `{"username", "home_name"}`),
 `/api/api-keys`, `/api/setup`, `POST`/`PUT` under `/api/system/*`, `PUT /api/settings/radio`,
-`PUT /api/settings/bot`, `PUT /api/settings/tracking`, `PUT /api/settings/units`, `POST /api/offline-map/download`, `POST /api/offline-map/cancel`, `DELETE /api/offline-map`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
+`PUT /api/settings/bot`, `PUT /api/settings/tracking`, `PUT /api/settings/units`, `PUT /api/settings/meshtastic`, `POST /api/tracking/meshtastic/channel`, `GET /api/tracking/meshtastic/channel-url`, `POST /api/offline-map/download`, `POST /api/offline-map/cancel`, `DELETE /api/offline-map`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
 `/api/radio/simulate-incoming`, `DELETE /api/simulated-data`, `POST /api/system/radio-hat`, and every `PUT`/`POST`/`DELETE`
 under `/api/radio/config`, `/api/radio/channels`, `/api/radio/custom-vars` and `/api/radio/actions`,
 everything under `/api/remote` (remote administration of repeaters and room servers), and
@@ -730,6 +753,7 @@ changed so you can fetch it over HTTP. They do not carry message text.
 | `remote-updated` | `public_key` | Used by the web app's remote administration page; API keys cannot read it. |
 | `tracking-updated` | `device_id` (sometimes) | `GET /api/tracking`. Sent when a request goes out, an answer or a position arrives, and after changes. |
 | `courses-updated` | — | `GET /api/tracking/courses` |
+| `meshtastic-updated` | — | `GET /api/tracking/meshtastic` (its connection or channel changed) |
 | `offline-map-updated` | — | `GET /api/offline-map` (about once a second while downloading). |
 
 A missing, invalid or expired key is refused during the handshake (HTTP `403`). The server
@@ -834,7 +858,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.0.20",
+  "version": "1.1.0",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

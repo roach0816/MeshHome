@@ -19,6 +19,7 @@ from app.api import (
     contacts,
     firmware,
     inbox,
+    meshtastic,
     meta,
     node_map,
     offline_map,
@@ -39,6 +40,7 @@ from app.radio.supervisor import supervisor
 from app.realtime import hub
 from app.services import app_settings, courses, diagnostics, updates, web_push
 from app.services import bot_apps as bot_apps_service
+from app.services import meshtastic as meshtastic_service
 from app.services import offline_map as offline_map_service
 from app.services import sensors as sensors_service
 from app.services import tracking as tracking_service
@@ -72,6 +74,7 @@ async def lifespan(app: FastAPI):
     await courses.sync_sim_route()
     tracking_service.manager.start()  # before the radio, so it hears the first contact sync
     supervisor.start()
+    meshtastic_service.source.start()
     web_push.start()
     sensors_service.manager.start()
     update_task = asyncio.create_task(_update_check_loop(), name="update-check")
@@ -83,6 +86,7 @@ async def lifespan(app: FastAPI):
         diag_task.cancel()
         await sensors_service.manager.stop()
         await tracking_service.manager.stop()
+        await meshtastic_service.source.stop()
         await offline_map_service.manager.stop()
         await supervisor.stop()
         await web_push.stop()
@@ -153,6 +157,7 @@ app.include_router(radio.router)
 app.include_router(node_map.router)
 app.include_router(offline_map.router)
 app.include_router(tracking.router)
+app.include_router(meshtastic.router)
 app.include_router(radio_config.router)
 app.include_router(system.router)
 app.include_router(api_keys.router)

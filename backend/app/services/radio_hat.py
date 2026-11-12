@@ -23,6 +23,11 @@ from app.config import get_settings
 
 HOST = "127.0.0.1"
 PORT = 5000
+# The HAT can run Meshtastic instead (meshtasticd, from Meshtastic's apt repository), for Meshtastic
+# trackers: its API on 127.0.0.1:4403 (services/meshtastic.py).
+MESHTASTIC_SERVICE = "meshtasticd"
+MESHTASTIC_PORT = 4403
+FIRMWARES = ("meshcore", "meshtastic")
 # The radio service's name: meshhome-radio, or meshcore-home-radio on an install from before the
 # rename to MeshHome that hasn't been migrated yet (its state directory still has the old name).
 SERVICE = (
@@ -135,13 +140,13 @@ def status_file() -> dict[str, Any] | None:
         return None
 
 
-async def service_state() -> dict[str, Any]:
+async def service_state(name: str = SERVICE) -> dict[str, Any]:
     """systemd's view of the radio service (readable without root)."""
     try:
         proc = await asyncio.create_subprocess_exec(
             "systemctl",
             "show",
-            SERVICE,
+            name,
             "--property=LoadState,ActiveState,SubState,NRestarts,ConditionResult",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -150,7 +155,7 @@ async def service_state() -> dict[str, Any]:
     except (OSError, TimeoutError):
         return {}
     props = dict(line.split("=", 1) for line in out.decode().splitlines() if "=" in line)
-    if props.get("LoadState") in (None, "not-found"):
+    if props.get("LoadState") in (None, "not-found", "masked"):
         return {"installed": False}
     return {
         "installed": True,
@@ -162,27 +167,47 @@ async def service_state() -> dict[str, Any]:
     }
 
 
-async def info() -> dict[str, Any]:
-    model = pi_model()
-    st = status_file() or {}
-    svc = await service_state() if native() else {}
-    spi = os.path.exists(SPIDEV_SYSFS) or os.path.exists(SPIDEV) or _test_mode()
-    lock = pinned()
-    glibc, min_glibc = glibc_version(), lock.get("ZEPHCORE_MIN_GLIBC")
+def firmware(st: dict[str, Any] | None = None) -> str:
+    """What the HAT runs (or was last set up to run): "meshcore" (ZephCore) or "meshtastic"."""
+    fw = (st if st is not None else status_file() or {}).get("firmware")
+    return fw if fw in FIRMWARES else "meshcore"
+
+
+def _reasons(model: str | None, glibc: str | None, min_glibc: str | None) -> dict[str, str | None]:
+    """Why each firmware can't be set up here (None: it can)."""
     if not native():
-        reason = "The radio HAT is available on Raspberry Pi installs made with install.sh."
+        common = "The radio HAT is available on Raspberry Pi installs made with install.sh."
     elif not board(model):
-        reason = "The RAK6421 radio HAT works on a Raspberry Pi 4 or 5."
-    elif glibc and min_glibc and _version(glibc) < _version(min_glibc):
-        reason = (
+        common = "The RAK6421 radio HAT works on a Raspberry Pi 4 or 5."
+    else:
+        common = None
+    meshcore = common
+    if meshcore is None and glibc and min_glibc and _version(glibc) < _version(min_glibc):
+        meshcore = (
             "The radio software (ZephCore) needs Raspberry Pi OS 13 “Trixie” or Debian 13 "
             f"(glibc {min_glibc} or newer); this Pi has glibc {glibc}. Re-image the SD card with the "
             "current 64-bit Raspberry Pi OS, then install MeshHome again."
         )
-    elif st.get("state") == "unsupported":
-        reason = st.get("message")
-    else:
-        reason = None
+    meshtastic = common
+    if meshtastic is None and glibc and _version(glibc) < _version("2.36"):
+        meshtastic = (
+            "Meshtastic for Linux (meshtasticd) is packaged for Debian 12 and 13 (64-bit Raspberry Pi OS)."
+        )
+    return {"meshcore": meshcore, "meshtastic": meshtastic}
+
+
+async def info() -> dict[str, Any]:
+    model = pi_model()
+    st = status_file() or {}
+    fw = firmware(st)
+    svc = await service_state(MESHTASTIC_SERVICE if fw == "meshtastic" else SERVICE) if native() else {}
+    spi = os.path.exists(SPIDEV_SYSFS) or os.path.exists(SPIDEV) or _test_mode()
+    lock = pinned()
+    glibc, min_glibc = glibc_version(), lock.get("ZEPHCORE_MIN_GLIBC")
+    reasons = _reasons(model, glibc, min_glibc)
+    if st.get("state") == "unsupported" and st.get("message"):
+        reasons[fw] = st.get("message")
+    reason = reasons[fw] if fw == "meshtastic" else reasons["meshcore"]
     updated = float(st.get("updated_at") or 0)
     busy = st.get("state") in ACTIVE_STATES and time.time() - updated < STALE_AFTER
     if busy and st.get("state") == "rebooting":
@@ -203,6 +228,14 @@ async def info() -> dict[str, Any]:
     return {
         "available": reason is None,
         "unavailable_reason": reason,
+        # What it runs (or is being set up to run): "meshcore" (ZephCore, MeshHome's radio) or
+        # "meshtastic" (meshtasticd, for Meshtastic trackers). Either can be chosen when available.
+        "firmware": fw,
+        "available_firmware": {k: v is None for k, v in reasons.items()},
+        "unavailable_reasons": reasons,
+        "meshtastic_version": st.get("meshtastic_version"),
+        "meshtastic_module": st.get("meshtastic_module"),
+        "meshtastic_slot": st.get("meshtastic_slot"),
         "phase": phase,  # absent | checking | installing | rebooting | needs_reboot | ready | stopped
         "model": model,
         "board": board(model),
@@ -215,5 +248,5 @@ async def info() -> dict[str, Any]:
         "last_state": st.get("state"),
         "updated_at": st.get("updated_at"),
         "host": HOST,
-        "port": PORT,
+        "port": MESHTASTIC_PORT if fw == "meshtastic" else PORT,
     }

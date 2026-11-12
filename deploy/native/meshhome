@@ -24,12 +24,22 @@ Usage: $ME <command>
   backup         Back up the database now
   https          Set up HTTPS (nginx + Let's Encrypt via Cloudflare DNS); --disable to remove
   security-updates   Turn on Debian's automatic OS security updates
-  radio-hat [remove [--purge] | restart | logs [-f]]
-                 Set up (or remove) the RAK6421 radio HAT on a Raspberry Pi 4/5
+  radio-hat [setup [--firmware meshcore|meshtastic] [--slot 1|2] [--module 13300|13302]
+             | remove [--purge] | restart | logs [-f]]
+                 Set up (or remove) the RAK6421 radio HAT on a Raspberry Pi 4/5, or switch it
+                 between MeshCore (ZephCore) and Meshtastic (meshtasticd)
   uninstall      Remove the application (add --purge to delete all data)
   migrate        Move an install from before the rename to the MeshHome names (meshhome, /opt/meshhome, …)
   version        Print the installed version
 USAGE
+}
+
+hat_service() {  # the radio HAT's service: ZephCore's, or meshtasticd when the HAT runs Meshtastic
+  local f
+  for f in /etc/meshhome/radio-hat-firmware /etc/meshcore-home/radio-hat-firmware; do
+    if [[ -f $f && $(tr -dc 'a-z' <"$f") == meshtastic ]]; then echo meshtasticd; return; fi
+  done
+  echo "$SERVICE-radio"
 }
 
 cmd=${1:-status}; shift || true
@@ -53,10 +63,10 @@ case "$cmd" in
   radio-hat)
     need_root "$cmd" "$@"
     case "${1:-setup}" in
-      setup) exec bash "$INSTALLER" --radio-hat ;;
+      setup) shift || true; exec bash "$INSTALLER" --radio-hat "$@" ;;
       remove) shift; exec bash "$INSTALLER" --radio-hat --remove "$@" ;;
-      restart) systemctl restart "$SERVICE-radio" && systemctl --no-pager status "$SERVICE-radio" | head -n 5 ;;
-      logs) shift; exec journalctl -u "$SERVICE-radio" --no-pager -n 200 "$@" ;;
+      restart) systemctl restart "$(hat_service)" && systemctl --no-pager status "$(hat_service)" | head -n 5 ;;
+      logs) shift; exec journalctl -u "$(hat_service)" --no-pager -n 200 "$@" ;;
       *) usage; exit 2 ;;
     esac ;;
   setup-token)
