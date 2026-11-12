@@ -30,6 +30,7 @@ from app.api.deps import (
     AuthContext,
     client_ip,
     load_session,
+    meshcore_only,
     require_csrf,
     require_requested_with,
     require_session,
@@ -133,8 +134,8 @@ async def _capture_radio(db: AsyncSession) -> tuple[radio_backup.Snapshot | None
     the system archive instead, and a simulated radio is only captured for testing."""
     cfg = await app_settings.get_radio_config(db)
     await db.rollback()  # don't hold a transaction open while the radio is read
-    if cfg.mode not in ("tcp", "simulated"):
-        return None, None
+    if cfg.mode not in ("tcp", "simulated") or app_settings.effective_tech(cfg) != "meshcore":
+        return None, None  # a Meshtastic radio keeps its own settings
     if not supervisor.connected:
         return (
             None,
@@ -337,7 +338,7 @@ async def _connected_radio() -> dict | None:
     return {"name": snap.name, "public_key": snap.public_key.lower(), "simulated": snap.is_simulated}
 
 
-@router.post("/api/radio-restore/{upload_id}/inspect")
+@router.post("/api/radio-restore/{upload_id}/inspect", dependencies=[Depends(meshcore_only)])
 async def inspect_radio(
     upload_id: str,
     body: PassphraseIn,
@@ -371,7 +372,7 @@ class RadioRestoreIn(PassphraseIn):
     parts: list[str] = Field(min_length=1, max_length=len(radio_backup.PARTS))
 
 
-@router.post("/api/radio-restore/{upload_id}/apply")
+@router.post("/api/radio-restore/{upload_id}/apply", dependencies=[Depends(meshcore_only)])
 async def apply_radio(
     upload_id: str,
     body: RadioRestoreIn,

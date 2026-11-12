@@ -12,14 +12,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_session
+from app.api.deps import AuthContext, meshcore_only, require_session
 from app.db import get_db
 from app.models import AuditEvent, Contact, Radio
 from app.radio.base import NotSupported, RadioError
 from app.radio.supervisor import supervisor
 from app.services import remote_admin
 
-router = APIRouter(prefix="/api/remote", tags=["remote admin"])
+router = APIRouter(prefix="/api/remote", tags=["remote admin"], dependencies=[Depends(meshcore_only)])
 
 MANAGEABLE_KINDS = (2, 3)  # repeater, room server
 

@@ -88,9 +88,10 @@ export function useRealtime(enabled: boolean): SocketState {
             qc.invalidateQueries({ queryKey: ["meshtastic-nodes"] });
             break;
           case "meshtastic-updated":
-            qc.invalidateQueries({ queryKey: ["meshtastic"] });
+            // The Meshtastic radio's settings changed (Node settings).
+            qc.invalidateQueries({ queryKey: ["meshtastic-node"] });
+            qc.invalidateQueries({ queryKey: ["meshtastic-share"] });
             qc.invalidateQueries({ queryKey: ["meshtastic-nodes"] });
-            qc.invalidateQueries({ queryKey: ["meshtastic-channel-url"] });
             break;
           case "courses-updated":
             qc.invalidateQueries({ queryKey: ["tracking-courses"] });
@@ -111,7 +112,6 @@ export function useRealtime(enabled: boolean): SocketState {
             qc.invalidateQueries({ queryKey: ["tracking-settings"] });
             qc.invalidateQueries({ queryKey: ["units"] });
             qc.invalidateQueries({ queryKey: ["sensors"] });
-            qc.invalidateQueries({ queryKey: ["meshtastic-settings"] });
             break;
           case "radio-status-changed":
             qc.invalidateQueries({ queryKey: ["status"] });

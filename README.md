@@ -2,10 +2,10 @@
 
 # MeshHome
 
-A self-hosted web inbox for your [MeshCore](https://meshcore.io) radio. MeshHome keeps one
-connection to a MeshCore companion radio, archives every message it hears in PostgreSQL (even when no
-browser is open), and gives you a fast chat interface for channels and direct messages from any phone,
-tablet or computer on your network.
+A self-hosted web inbox for your [MeshCore](https://meshcore.io) or
+[Meshtastic](https://meshtastic.org) radio. MeshHome keeps one connection to your radio, archives
+every message it hears in PostgreSQL (even when no browser is open), and gives you a fast chat
+interface for channels and direct messages from any phone, tablet or computer on your network.
 
 **Website:** [meshhome.app](https://meshhome.app)
 
@@ -16,6 +16,8 @@ tablet or computer on your network.
 
 ## What it does
 
+- **MeshCore or Meshtastic:** choose the mesh in Settings; contacts, channels, messages and tracking
+  follow it, and each technology's own features appear with it.
 - **Messaging:** channels and direct messages with search, unread counts, favourites, emoji, honest
   delivery states (*Sent by radio*, *Delivered*, …), and live updates in every open browser.
 - **Signed messages:** sign what you post in a channel, see who really sent each signed message
@@ -29,8 +31,7 @@ tablet or computer on your network.
   node that shares its position.
 - **Tracking:** follow GPS trackers (such as a relay runner's) on their own map with your course from
   GPX files, asking each for its position as often as every minute, and save an offline map for
-  venues without internet. Meshtastic trackers work too, heard through a Meshtastic node or the
-  radio HAT running Meshtastic.
+  venues without internet. With Meshtastic, every position a tracker broadcasts is recorded.
 - **Your radio's settings** from the browser: identity and location, region presets, channels (with
   QR codes and region scopes), routing and telemetry.
 - **Repeater administration:** log in to your repeaters and room servers to read their status, use

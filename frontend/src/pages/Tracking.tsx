@@ -25,6 +25,7 @@ import {
   type ContactPage,
   type Course,
   type MeshNode,
+  type MtConfig,
   type TrackedDevice,
   type TrackingData,
   type Units,
@@ -386,8 +387,15 @@ export function Tracking() {
 
   const enabled = d?.config.enabled;
   const offlineMissing = d && d.tiles.offline && !usesOffline(d.tiles, d.offline);
-  const mt = d?.meshtastic ?? null;
-  const hasMeshCore = devices.some((x) => x.source === "meshcore");
+  // Meshtastic: trackers broadcast on their own, over a channel shared with the radio.
+  const mt = d?.tech === "meshtastic";
+  const node = useQuery({
+    queryKey: ["meshtastic-node"],
+    queryFn: () => api<MtConfig>("/api/node/meshtastic"),
+    enabled: mt && !!d?.radio_connected,
+    retry: false,
+  });
+  const publicPrimary = node.data?.channels.find((c) => c.primary && c.key !== "private");
 
   const listPanel = (
     <div className="flex h-full min-h-0 flex-col">
@@ -424,6 +432,7 @@ export function Tracking() {
             onPoll={(dev) => poll.mutate(dev.id)}
             onAdd={() => setAdding(true)}
             radioConnected={!!d?.radio_connected}
+            meshtastic={mt}
             error={save.error ?? poll.error}
           />
         ) : (
@@ -448,11 +457,9 @@ export function Tracking() {
           <p className="truncate text-xs text-muted">
             {!d
               ? "Loading…"
-              : `${shown.length} of ${devices.length} tracker${devices.length === 1 ? "" : "s"} shown${
-                  hasMeshCore || !mt ? ` · ${d.radio_connected ? "radio connected" : "radio not connected"}` : ""
-                }${mt ? ` · Meshtastic ${mt.state === "connected" ? "connected" : "not connected"}` : ""}${
-                  usesOffline(d.tiles, d.offline) ? " · offline map" : ""
-                }`}
+              : `${shown.length} of ${devices.length} tracker${devices.length === 1 ? "" : "s"} shown · ${
+                  d.radio_connected ? "radio connected" : "radio not connected"
+                }${usesOffline(d.tiles, d.offline) ? " · offline map" : ""}`}
           </p>
         </div>
         <Button onClick={fitAll} disabled={!d} title="Fit everything in view">
@@ -474,25 +481,19 @@ export function Tracking() {
           to add trackers.
         </p>
       )}
-      {d && enabled && !d.radio_connected && (hasMeshCore || !mt) && (
+      {d && enabled && !d.radio_connected && (
         <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-sm text-warn">
-          The radio isn't connected, so {mt ? "MeshCore " : ""}trackers aren't being asked for their position.
+          {mt
+            ? "The radio isn't connected, so trackers' positions aren't being heard."
+            : "The radio isn't connected, so trackers aren't being asked for their position."}
         </p>
       )}
-      {d && enabled && mt && mt.state !== "connected" && (
+      {d && enabled && mt && publicPrimary && (
         <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-sm text-warn">
-          {mt.detail ?? "Connecting to the Meshtastic node…"}{" "}
-          <Link to="/settings/tracking" className="underline">
-            Meshtastic settings
-          </Link>
-        </p>
-      )}
-      {d && enabled && mt?.state === "connected" && mt.channel && !mt.channel.private && (
-        <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-sm text-warn">
-          The Meshtastic radio is on the default public channel: positions arrive blurred to about 1.5 km and anyone nearby can
-          follow them.{" "}
-          <Link to="/settings/tracking" className="underline">
-            Set up a team channel
+          The radio's primary channel uses Meshtastic's default key: positions arrive approximate, and anyone nearby can follow
+          them.{" "}
+          <Link to="/settings/node" className="underline">
+            Give it a private key
           </Link>
         </p>
       )}
@@ -549,8 +550,9 @@ export function Tracking() {
             <div className="pointer-events-none absolute inset-x-0 top-6 z-[500] flex justify-center px-4">
               <div className="pointer-events-auto max-w-md rounded-xl border border-line bg-surface px-4 py-3 text-center text-sm text-muted shadow-lg">
                 <p>
-                  No trackers yet. Add the contact of a MeshCore GPS tracker (MeshHome asks it for its position on a schedule)
-                  {mt ? ", or a Meshtastic tracker the Meshtastic radio has heard (its broadcasts are recorded)" : ""}.
+                  {mt
+                    ? "No trackers yet. Add a Meshtastic tracker the radio has heard: every position it broadcasts is recorded."
+                    : "No trackers yet. Add the contact of a MeshCore GPS tracker: MeshHome asks it for its position on a schedule."}
                 </p>
                 <Button variant="primary" className="mt-3" onClick={() => setAdding(true)}>
                   <Plus className="size-4" aria-hidden /> Add a tracker
@@ -599,6 +601,7 @@ function TrackerList({
   onPoll,
   onAdd,
   radioConnected,
+  meshtastic,
   error,
 }: {
   devices: TrackedDevice[];
@@ -610,6 +613,7 @@ function TrackerList({
   onPoll: (d: TrackedDevice) => void;
   onAdd: () => void;
   radioConnected: boolean;
+  meshtastic: boolean;
   error: unknown;
 }) {
   return (
@@ -678,21 +682,24 @@ function TrackerList({
       <Button variant="primary" className="w-full" onClick={onAdd}>
         <Plus className="size-4" aria-hidden /> Add a tracker
       </Button>
-      <p className="text-xs text-muted">
-        MeshCore trackers must share their location with this node: in the MeshCore app on the tracker, turn GPS on and set
-        Telemetry → Location to allow this node (or everyone). It also needs this node in its contacts.
-      </p>
-      <p className="text-xs text-muted">
-        Meshtastic trackers need to be on the same channel as the Meshtastic radio: scan the team channel's QR code in Settings →
-        Tracking → Meshtastic into each one.
-      </p>
+      {meshtastic ? (
+        <p className="text-xs text-muted">
+          Trackers need to be on the same channel as this radio: scan the channel's QR code (Settings → Radio → Configure node
+          settings → Channels) into each one.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">
+          Trackers must share their location with this node: in the MeshCore app on the tracker, turn GPS on and set Telemetry →
+          Location to allow this node (or everyone). It also needs this node in its contacts.
+        </p>
+      )}
     </div>
   );
 }
 
 function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () => void }) {
   const qc = useQueryClient();
-  const [kind, setKind] = useState<"meshcore" | "meshtastic">(data.meshtastic && !data.radio_connected ? "meshtastic" : "meshcore");
+  const kind = data.tech;
   const [q, setQ] = useState("");
   const [label, setLabel] = useState("");
   const [interval, setIntervalS] = useState(60);
@@ -714,22 +721,6 @@ function AddTrackerDialog({ data, onClose }: { data: TrackingData; onClose: () =
   return (
     <Dialog title="Add a tracker" onClose={onClose} footer={<Button onClick={onClose}>Cancel</Button>}>
       <div className="space-y-4">
-        {data.meshtastic && (
-          <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="radiogroup" aria-label="Kind of tracker">
-            {(["meshcore", "meshtastic"] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="radio"
-                aria-checked={kind === k}
-                onClick={() => setKind(k)}
-                className={cx("min-h-9 flex-1 rounded-md px-3 text-sm font-medium", kind === k ? "bg-surface shadow-sm" : "text-muted")}
-              >
-                {k === "meshcore" ? "MeshCore contact" : "Meshtastic node"}
-              </button>
-            ))}
-          </div>
-        )}
         <div className={cx("grid gap-3", kind === "meshcore" && "sm:grid-cols-[1fr_9rem]")}>
           <Field label="Label (optional)" htmlFor="trk-label" hint="Shown instead of its name, e.g. who's carrying it.">
             <Input id="trk-label" value={label} maxLength={64} placeholder="Leg 1 – Sam" onChange={(e) => setLabel(e.target.value)} />

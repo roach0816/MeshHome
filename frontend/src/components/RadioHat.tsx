@@ -69,15 +69,18 @@ function SlotFields({
 
 /**
  * Settings → Radio connection → "Radio HAT on this Pi": set up, follow, restart, switch or remove
- * the radio software that drives a RAK6421 HAT: ZephCore (MeshCore, MeshHome's radio) or
- * meshtasticd (Meshtastic, for Meshtastic trackers). System changes are made by the installer's
+ * the radio software that drives a RAK6421 HAT: ZephCore (MeshCore) or meshtasticd (Meshtastic).
+ * While the HAT is MeshHome's radio, MeshHome runs what it runs. System changes are made by the installer's
  * root helper; this panel only sends requests and shows its progress.
  */
 export function RadioHatPanel({
   connected,
   beforeReboot,
+  tech = "meshcore",
 }: {
   connected: boolean;
+  /** The technology chosen above: what a new setup installs first. */
+  tech?: HatFirmware;
   // Saves "Radio HAT on this Pi" as the radio mode when it is chosen but not saved yet, so the
   // choice survives the restart.
   beforeReboot?: () => Promise<unknown>;
@@ -86,7 +89,7 @@ export function RadioHatPanel({
   const hat = useRadioHat();
   const device = useQuery({ queryKey: ["device"], queryFn: () => api<Device>("/api/device"), enabled: connected });
   const [confirm, setConfirm] = useState<null | "reboot" | "remove" | "switch">(null);
-  const [choice, setChoice] = useState<HatFirmware>("meshcore");
+  const [choice, setChoice] = useState<HatFirmware>(tech);
   const [slot, setSlot] = useState<1 | 2>(1);
   const [module, setModule] = useState<"13300" | "13302">("13300");
   const act = useMutation({
@@ -96,10 +99,8 @@ export function RadioHatPanel({
     },
     onSuccess: () => {
       setConfirm(null);
-      qc.invalidateQueries({ queryKey: ["radio-hat"] });
-      qc.invalidateQueries({ queryKey: ["radio-settings"] });
-      qc.invalidateQueries({ queryKey: ["meshtastic-settings"] });
-      qc.invalidateQueries({ queryKey: ["status"] });
+      // Switching the HAT switches what MeshHome runs: everything is read again.
+      qc.invalidateQueries();
     },
   });
   const install = (firmware: HatFirmware) =>
@@ -174,9 +175,8 @@ export function RadioHatPanel({
           ) : (
             <>
               <p>
-                MeshHome installs <strong>meshtasticd</strong>, Meshtastic for Linux, to drive the HAT for{" "}
-                <strong>Meshtastic trackers</strong> (Settings → Tracking). The HAT is then not a MeshCore radio: MeshHome's
-                messages need another MeshCore radio meanwhile.
+                MeshHome installs <strong>meshtasticd</strong>, Meshtastic for Linux, to drive the HAT. MeshHome then runs
+                Meshtastic: its contacts, channels, messages and trackers are the Meshtastic mesh's.
               </p>
               <ul className="list-disc space-y-1 pl-5 text-muted">
                 <li>Adds Meshtastic's package repository (its signing key is checked) and installs meshtasticd with apt, which keeps it up to date</li>
@@ -233,12 +233,6 @@ export function RadioHatPanel({
               {h.service.restarts ? <span className="text-muted"> · {h.service.restarts} restarts</span> : null}
             </span>
           </p>
-          {fw === "meshtastic" && (
-            <p className="text-muted">
-              The HAT runs Meshtastic, for Meshtastic trackers (Settings → Tracking → Meshtastic), so it isn't MeshHome's MeshCore
-              radio now. Switch it back to MeshCore to use it as that again.
-            </p>
-          )}
           {fw === "meshcore" && connected && Number.isFinite(freq) && Math.abs(freq - EU_FREQ) < 0.01 && (
             <p className="flex items-start gap-2 rounded-md bg-warn/10 px-3 py-2">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
@@ -310,20 +304,19 @@ export function RadioHatPanel({
             {other === "meshtastic" ? (
               <>
                 <p>
-                  The HAT stops being MeshHome's MeshCore radio and runs Meshtastic, so MeshHome can follow Meshtastic trackers
-                  through it. Until you switch back, MeshHome sends and receives no MeshCore messages (unless you connect
-                  another MeshCore radio).
+                  The HAT runs Meshtastic instead of MeshCore, and MeshHome with it: contacts, channels, messages and trackers
+                  become the Meshtastic mesh's. MeshCore's are kept, and come back when you switch back.
                 </p>
                 <p className="text-muted">
-                  ZephCore's identity, contacts and channels are kept: switching back restores them. Meshtastic is installed with
-                  apt from its own repository the first time (a few minutes).
+                  ZephCore's identity, contacts and channels stay on the Pi. Meshtastic is installed with apt from its own
+                  repository the first time (a few minutes).
                 </p>
                 <SlotFields slot={slot} module={module} onSlot={setSlot} onModule={setModule} />
               </>
             ) : (
               <p>
-                The HAT runs ZephCore again and becomes MeshHome's MeshCore radio, with its identity, contacts and channels as
-                before. Meshtastic trackers are no longer heard through it; Meshtastic's channels are kept for switching back.
+                The HAT runs ZephCore again, and MeshHome runs MeshCore: its identity, contacts, channels and messages come back
+                as before. Meshtastic's are kept (its channels and node list stay on the Pi) for switching back.
               </p>
             )}
             <ErrorText error={act.error} />

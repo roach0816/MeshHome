@@ -60,6 +60,7 @@ class DeviceSnapshot:
     raw_device_info: dict[str, Any] = field(default_factory=dict)
     lat: float | None = None  # the gateway's own advertised position, if set
     lon: float | None = None
+    tech: str = "meshcore"
 
 
 @dataclass
@@ -136,6 +137,10 @@ DisconnectCallback = Callable[[str], Awaitable[None]]
 
 class RadioAdapter(ABC):
     is_simulated: bool = False
+    tech = "meshcore"
+    # The app retries a direct message that gets no ACK (MeshCore). False: the radio retries on
+    # its own (Meshtastic), so each message is sent once.
+    app_retries = True
 
     def __init__(self) -> None:
         self.on_ack: AckCallback | None = None

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, is_https, require_auth, require_session
+from app.api.deps import AuthContext, is_https, meshcore_only, require_auth, require_session
 from app.config import APP_VERSION, get_settings
 from app.db import get_db
 from app.models import AuditEvent, Channel, CollectionGap, Contact, Message, Radio
@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api", tags=["radio"])
 
 
 class RadioSettingsIn(BaseModel):
+    tech: app_settings.RadioTech = "meshcore"
     mode: app_settings.RadioMode
     host: str = ""
     port: int = Field(default=5000, ge=1, le=65535)
@@ -43,7 +44,14 @@ async def get_status(ctx: AuthContext = Depends(require_auth), db: AsyncSession 
         "app": {"version": APP_VERSION, "radio_enabled_env": get_settings().radio_enabled},
         "database": {"ok": True, "messages": msg_count},
         "radio": supervisor.snapshot(),
-        "radio_config": {"mode": cfg.mode, "host": cfg.host, "port": cfg.port, "paused": cfg.paused},
+        # tech: the technology in use ("meshcore" | "meshtastic"); the app shows its features only.
+        "radio_config": {
+            "tech": app_settings.effective_tech(cfg),
+            "mode": cfg.mode,
+            "host": cfg.host,
+            "port": cfg.port,
+            "paused": cfg.paused,
+        },
         "realtime_clients": hub.client_count,
         "gaps": [
             {
@@ -60,11 +68,7 @@ async def get_status(ctx: AuthContext = Depends(require_auth), db: AsyncSession 
 
 @router.get("/device")
 async def get_device(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
-    radio = supervisor.radio
-    if radio is None:
-        radio = (
-            await db.execute(select(Radio).order_by(Radio.last_connected_at.desc().nulls_last()).limit(1))
-        ).scalar()
+    radio = await supervisor.current_radio(db)
     if radio is None:
         return {"radio": None, "channels": [], "contacts": 0}
     channels = (
@@ -94,7 +98,8 @@ async def get_device(ctx: AuthContext = Depends(require_auth), db: AsyncSession 
 
 @router.get("/settings/radio", response_model=app_settings.RadioConfig)
 async def get_radio_settings(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
-    return await app_settings.get_radio_config(db)
+    cfg = await app_settings.get_radio_config(db)
+    return cfg.model_copy(update={"tech": app_settings.effective_tech(cfg)})
 
 
 @router.put("/settings/radio", response_model=app_settings.RadioConfig)
@@ -103,6 +108,7 @@ async def put_radio_settings(
 ):
     current = await app_settings.get_radio_config(db)
     cfg = app_settings.RadioConfig(
+        tech=body.tech,
         mode=body.mode,
         host=body.host,
         port=body.port,
@@ -116,8 +122,14 @@ async def put_radio_settings(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "The radio HAT is available on Raspberry Pi installs made with install.sh",
         )
+    if cfg.mode == "hat" and radio_hat.firmware() != cfg.tech:
+        runs = "Meshtastic" if radio_hat.firmware() == "meshtastic" else "MeshCore"
+        want = "Meshtastic" if cfg.tech == "meshtastic" else "MeshCore"
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"The radio HAT runs {runs}. Switch it to {want} first."
+        )
     await app_settings.put_radio_config(db, cfg)
-    db.add(AuditEvent(kind="radio.settings_changed", detail={"mode": cfg.mode}))
+    db.add(AuditEvent(kind="radio.settings_changed", detail={"mode": cfg.mode, "tech": cfg.tech}))
     await db.commit()
     supervisor.reload()
     return cfg
@@ -257,7 +269,9 @@ async def get_routing(ctx: AuthContext = Depends(require_auth), db: AsyncSession
     return await app_settings.get_routing_config(db)
 
 
-@router.put("/settings/routing", response_model=app_settings.RoutingConfig)
+@router.put(
+    "/settings/routing", response_model=app_settings.RoutingConfig, dependencies=[Depends(meshcore_only)]
+)
 async def put_routing(
     body: app_settings.RoutingConfig,
     ctx: AuthContext = Depends(require_auth),
@@ -296,7 +310,7 @@ class TraceOut(BaseModel):
     elapsed_ms: int
 
 
-@router.post("/radio/trace", response_model=TraceOut)
+@router.post("/radio/trace", response_model=TraceOut, dependencies=[Depends(meshcore_only)])
 async def trace_route(
     body: TraceIn, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):

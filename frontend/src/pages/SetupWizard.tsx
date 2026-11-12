@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { ArchiveRestore, Check, Cpu, FlaskConical, KeyRound, Radio, RadioTower, UserRound, WifiOff } from "lucide-react";
-import { api, type Me, type RadioMode } from "../lib/api";
+import { api, type Me, type RadioMode, type RadioTech } from "../lib/api";
 import { Button, Card, ErrorText, Field, Input } from "../components/ui";
 import { cx } from "../lib/util";
 import { useSetupStatus } from "../lib/queries";
@@ -22,26 +22,40 @@ const HAT_MODE = {
   icon: Cpu,
 };
 
-const MODES: { mode: RadioMode; title: string; body: string; icon: typeof Radio }[] = [
-  {
-    mode: "simulated",
-    title: "Simulated radio",
-    body: "No hardware yet. A built-in simulator produces labelled sample traffic so you can try everything.",
-    icon: FlaskConical,
-  },
-  {
-    mode: "tcp",
-    title: "MeshCore Ethernet companion",
-    body: "Connect to a MeshCore companion radio over TCP on your network (e.g. a RAK4631 Ethernet build).",
-    icon: RadioTower,
-  },
-  {
-    mode: "none",
-    title: "Decide later",
-    body: "Finish setup without a radio. History and settings are available; connect a radio any time.",
-    icon: WifiOff,
-  },
-];
+type ModeChoice = { mode: RadioMode; title: string; body: string; icon: typeof Radio };
+
+function modesFor(tech: RadioTech): ModeChoice[] {
+  return [
+    {
+      mode: "simulated",
+      title: "Simulated radio",
+      body:
+        tech === "meshtastic"
+          ? "No hardware yet. A simulated Meshtastic mesh, with trackers and a hiker who chats, so you can try everything."
+          : "No hardware yet. A built-in simulator produces labelled sample traffic so you can try everything.",
+      icon: FlaskConical,
+    },
+    tech === "meshtastic"
+      ? {
+          mode: "tcp",
+          title: "Meshtastic node on the network",
+          body: "Connect to a Meshtastic node's API over TCP (port 4403), e.g. an ESP32 node with Wi-Fi.",
+          icon: RadioTower,
+        }
+      : {
+          mode: "tcp",
+          title: "MeshCore Ethernet companion",
+          body: "Connect to a MeshCore companion radio over TCP on your network (e.g. a RAK4631 Ethernet build).",
+          icon: RadioTower,
+        },
+    {
+      mode: "none",
+      title: "Decide later",
+      body: "Finish setup without a radio. History and settings are available; connect a radio any time.",
+      icon: WifiOff,
+    },
+  ];
+}
 
 export function SetupWizard() {
   const qc = useQueryClient();
@@ -52,6 +66,7 @@ export function SetupWizard() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [tech, setTech] = useState<RadioTech>("meshcore");
   const [mode, setMode] = useState<RadioMode>("simulated");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("5000");
@@ -59,11 +74,22 @@ export function SetupWizard() {
   const [restoring, setRestoring] = useState(false);
   const setupStatus = useSetupStatus();
   const hatReady = !!setupStatus.data?.radio_hat_ready;
-  const modes = hatReady ? [HAT_MODE, ...MODES] : MODES;
-  // The installer already set up a radio HAT: offer it first.
+  const hatTech: RadioTech = setupStatus.data?.radio_hat_firmware === "meshtastic" ? "meshtastic" : "meshcore";
+  // The HAT runs one technology: offered for that one.
+  const modes = hatReady && hatTech === tech ? [HAT_MODE, ...modesFor(tech)] : modesFor(tech);
+  // The installer already set up a radio HAT: offer it (and what it runs) first.
   useEffect(() => {
-    if (hatReady) setMode("hat");
-  }, [hatReady]);
+    if (hatReady) {
+      setTech(hatTech);
+      setMode("hat");
+    }
+  }, [hatReady, hatTech]);
+  const chooseTech = (t: RadioTech) => {
+    setTech(t);
+    if (mode === "hat" && t !== hatTech) setMode("simulated");
+    if (t === "meshtastic" && port === "5000") setPort("4403");
+    if (t === "meshcore" && port === "4403") setPort("5000");
+  };
 
   const pwError =
     password.length > 0 && password.length < 10
@@ -84,7 +110,7 @@ export function SetupWizard() {
           username,
           password,
           home_name: homeName.trim(),
-          radio: { mode, host: mode === "tcp" ? host.trim() : "", port: portNum || 5000, sim_interval_seconds: 60 },
+          radio: { tech, mode, host: mode === "tcp" ? host.trim() : "", port: portNum || 5000, sim_interval_seconds: 60 },
         },
       }),
     onSuccess: async (me) => {
@@ -226,6 +252,20 @@ export function SetupWizard() {
                   <h2 className="text-lg font-semibold">Connect your home radio</h2>
                   <p className="text-sm text-muted">You can change this at any time in Settings.</p>
                 </div>
+                <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="radiogroup" aria-label="Mesh">
+                  {(["meshcore", "meshtastic"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      role="radio"
+                      aria-checked={tech === t}
+                      onClick={() => chooseTech(t)}
+                      className={cx("min-h-10 flex-1 rounded-md px-3 text-sm font-medium", tech === t ? "bg-surface shadow-sm" : "text-muted")}
+                    >
+                      {t === "meshcore" ? "MeshCore" : "Meshtastic"}
+                    </button>
+                  ))}
+                </div>
                 <fieldset className="space-y-2">
                   <legend className="sr-only">Radio mode</legend>
                   {modes.map((m) => (
@@ -286,9 +326,11 @@ export function SetupWizard() {
                     ["Owner", username],
                     [
                       "Radio",
-                      mode === "tcp"
-                        ? `MeshCore companion at ${host.trim()}:${portNum}`
-                        : modes.find((m) => m.mode === mode)!.title,
+                      `${tech === "meshtastic" ? "Meshtastic" : "MeshCore"}: ${
+                        mode === "tcp"
+                          ? `${tech === "meshtastic" ? "node" : "companion"} at ${host.trim()}:${portNum}`
+                          : (modes.find((m) => m.mode === mode)?.title ?? mode)
+                      }`,
                     ],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-4 px-3 py-2.5">

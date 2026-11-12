@@ -183,18 +183,10 @@ async def test_switching_the_hat_to_meshtastic_and_back(client, native, pi5):
     req = json.loads((native / "config-request.json").read_text())
     assert req["action"] == "hat-install" and req["firmware"] == "meshtastic"
     assert req["slot"] == "2" and req["module"] == "13302"
-    # MeshCore can't use the HAT now; Meshtastic trackers are heard through it.
-    assert (await client.get("/api/settings/radio")).json()["mode"] == "none"
-    assert (await client.get("/api/settings/meshtastic")).json()["source"] == "hat"
+    # The HAT stays MeshHome's radio, and MeshHome runs what it runs (once it's set up).
+    radio = (await client.get("/api/settings/radio")).json()
+    assert radio["mode"] == "hat" and radio["tech"] == "meshcore"  # not switched yet
     (native / "config-request.json").unlink()
-
-    # No MeshCore radio by choice: the status says why, and it isn't a collection gap.
-    async def quiet():
-        st = (await client.get("/api/status")).json()
-        meshtastic_said = st["radio"]["detail"] == "The radio HAT runs Meshtastic, for Meshtastic trackers"
-        return meshtastic_said and not any(g["open"] for g in st["gaps"])
-
-    await wait_for(quiet)
 
     (native / "radio-hat.json").write_text(
         json.dumps(
@@ -210,15 +202,45 @@ async def test_switching_the_hat_to_meshtastic_and_back(client, native, pi5):
     )
     info = (await client.get("/api/system/radio-hat")).json()
     assert info["firmware"] == "meshtastic" and info["port"] == 4403 and info["meshtastic_slot"] == 2
+    radio = (await client.get("/api/settings/radio")).json()
+    assert radio["mode"] == "hat" and radio["tech"] == "meshtastic"
 
-    # Back to MeshCore: the HAT is MeshHome's radio again.
+    async def meshtastic_radio():
+        st = (await client.get("/api/status")).json()["radio"]
+        return st["tech"] == "meshtastic"
+
+    await wait_for(meshtastic_radio)
+    # The HAT can't be chosen for the other technology without switching it.
+    r = await client.put(
+        "/api/settings/radio", headers=csrf(client), json={"tech": "meshcore", "mode": "hat"}
+    )
+    assert r.status_code == 409 and "Switch it to MeshCore" in r.json()["detail"]
+    r = await client.put(
+        "/api/settings/radio", headers=csrf(client), json={"tech": "meshtastic", "mode": "hat"}
+    )
+    assert r.status_code == 200
+
+    # Back to MeshCore: MeshHome runs MeshCore on the HAT again.
     r = await client.post(
         "/api/system/radio-hat", headers=csrf(client), json={"action": "install", "firmware": "meshcore"}
     )
     assert r.status_code == 202
     assert json.loads((native / "config-request.json").read_text())["firmware"] == "meshcore"
-    assert (await client.get("/api/settings/radio")).json()["mode"] == "hat"
-    assert (await client.get("/api/settings/meshtastic")).json()["source"] == "off"
+    (native / "radio-hat.json").write_text(
+        json.dumps({"state": "ready", "firmware": "meshcore", "updated_at": time.time()})
+    )
+    radio = (await client.get("/api/settings/radio")).json()
+    assert radio["mode"] == "hat" and radio["tech"] == "meshcore"
+
+    # None: no radio by choice, so nothing is missed (no collection gap stays open).
+    r = await client.put("/api/settings/radio", headers=csrf(client), json={"mode": "none"})
+    assert r.status_code == 200
+
+    async def quiet():
+        st = (await client.get("/api/status")).json()
+        return st["radio"]["state"] == "not_configured" and not any(g["open"] for g in st["gaps"])
+
+    await wait_for(quiet)
     r = await client.post(
         "/api/system/radio-hat", headers=csrf(client), json={"action": "install", "firmware": "other"}
     )

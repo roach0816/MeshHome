@@ -138,32 +138,6 @@ class BasePosition(BaseModel):
     lon: float
 
 
-class MeshtasticChannel(BaseModel):
-    name: str  # "" for the default public channel
-    private: bool  # its own key, not Meshtastic's default one
-    precise: bool  # positions on it are sent at full precision
-
-
-class MeshtasticNodeInfo(BaseModel):
-    num: int
-    node_id: str
-    long_name: str | None
-    short_name: str | None
-    firmware: str | None
-
-
-class MeshtasticStatus(BaseModel):
-    # off | hat | network | simulated
-    source: str
-    # off | connecting | connected | error
-    state: str
-    detail: str | None
-    node: MeshtasticNodeInfo | None
-    region: str | None
-    preset: str | None
-    channel: MeshtasticChannel | None
-
-
 class TrackingOut(BaseModel):
     config: app_settings.TrackingConfig
     # The app-wide units setting (GET/PUT /api/settings/units); values here are always metric.
@@ -174,8 +148,8 @@ class TrackingOut(BaseModel):
     devices: list[TrackedDeviceOut]
     tiles: app_settings.MapConfig
     offline: dict
-    # Meshtastic trackers (Settings → Tracking → Meshtastic); None while that's off.
-    meshtastic: MeshtasticStatus | None = None
+    # The technology in use ("meshcore" | "meshtastic"): only its trackers are listed.
+    tech: str = "meshcore"
 
 
 def _point(p: TrackPosition) -> TrackPoint:
@@ -469,18 +443,17 @@ async def _load(
     return d, c, n, bool(sim) if c is not None else bool(n is not None and n.simulated)
 
 
-def meshtastic_status() -> MeshtasticStatus | None:
-    info = meshtastic.source.info()
-    if info["source"] == "off" and info["state"] == "off":
-        return None
-    return MeshtasticStatus.model_validate(info)
-
-
 @router.get("/tracking", response_model=TrackingOut)
 async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
     """Tracked devices with their last position and recent trail, for the tracking map."""
     cfg = await app_settings.get_tracking_config(db)
-    rows = (await db.execute(_rows().order_by(TrackedDevice.created_at))).all()
+    tech = await app_settings.get_tech(db)
+    which = (
+        TrackedDevice.mesh_node_num.is_not(None)
+        if tech == "meshtastic"
+        else TrackedDevice.contact_id.is_not(None)
+    )
+    rows = (await db.execute(_rows().where(which).order_by(TrackedDevice.created_at))).all()
     ctx_ = await _context(db)
     devices = [
         await _device_out(
@@ -495,17 +468,16 @@ async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSessio
         for d, c, n, sim in rows
     ]
     base = None
-    radio = supervisor.radio
+    radio = await supervisor.current_radio(db)
     if radio is not None:
         r = await db.get(Radio, radio.id)
         loc = ((r.self_info if r else None) or {}).get("location") or {}
         if loc.get("lat") is not None and loc.get("lon") is not None:
             base = BasePosition(name=r.name, lat=loc["lat"], lon=loc["lon"])
-    snap = meshtastic.source.snapshot if meshtastic.source.connected else None
-    if base is None and snap is not None:
-        me = await db.get(MeshNode, snap.my_num)
-        if me is not None and me.lat is not None and me.lon is not None:
-            base = BasePosition(name=me.long_name or me.node_id, lat=me.lat, lon=me.lon)
+    if base is None and tech == "meshtastic":
+        fix = meshtastic.source.base_position()
+        if fix is not None and radio is not None:
+            base = BasePosition(name=radio.name, lat=fix["lat"], lon=fix["lon"])
     tiles = await app_settings.get_map_config(db)
     units = (await app_settings.get_units(db)).units
     await db.rollback()
@@ -518,7 +490,7 @@ async def get_tracking(ctx: AuthContext = Depends(require_auth), db: AsyncSessio
         devices=devices,
         tiles=tiles,
         offline=await offline_map.manager.summary(),
-        meshtastic=meshtastic_status(),
+        tech=tech,
     )
 
 
@@ -537,7 +509,6 @@ async def put_tracking_settings(
     db.add(AuditEvent(kind="settings.tracking", detail=body.model_dump()))
     await db.commit()
     tracking.manager.wake()
-    meshtastic.source.reload()
     hub.publish("settings-updated")
     hub.publish("tracking-updated")
     return body
@@ -606,10 +577,15 @@ async def add_device(
     if (body.contact_id is None) == (body.node_num is None):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Give either contact_id or node_num")
     contact = node = None
+    node_num = body.node_num
     if body.contact_id is not None:
         contact = await db.get(Contact, body.contact_id)
         if contact is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Contact not found")
+        if (contact.meta or {}).get("node_num"):
+            # A Meshtastic contact: track it as its node (its broadcasts are recorded).
+            node_num, contact = int(contact.meta["node_num"]), None
+    if contact is not None:
         if contact.kind != 1:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -618,7 +594,7 @@ async def add_device(
         if (await db.execute(select(TrackedDevice.id).where(TrackedDevice.contact_id == contact.id))).first():
             raise HTTPException(status.HTTP_409_CONFLICT, "That contact is already tracked")
     else:
-        node = await db.get(MeshNode, body.node_num)
+        node = await db.get(MeshNode, node_num)
         if node is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "The Meshtastic radio hasn't heard that node")
         if (

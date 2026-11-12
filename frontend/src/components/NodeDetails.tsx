@@ -5,6 +5,7 @@ import { MessageSquare, SlidersHorizontal } from "lucide-react";
 import { api, type ContactLookup, type ContactMatch, type Place } from "../lib/api";
 import { formatDateTime } from "../lib/util";
 import { Badge, Button, ErrorText } from "./ui";
+import { useTech } from "../lib/queries";
 
 const KIND: Record<number, string> = { 1: "Companion", 2: "Repeater", 3: "Room server", 4: "Sensor" };
 
@@ -34,6 +35,7 @@ function PlaceName({ lat, lon }: { lat: number; lon: number }) {
 }
 
 function NodeCard({ c, onNavigate }: { c: ContactMatch; onNavigate?: () => void }) {
+  const tech = useTech();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [error, setError] = useState<unknown>(null);
@@ -83,12 +85,12 @@ function NodeCard({ c, onNavigate }: { c: ContactMatch; onNavigate?: () => void 
       </dl>
       {c.kind >= 1 && c.kind <= 3 && (
       <div className="mt-2 flex flex-wrap gap-2">
-        {(c.kind === 2 || c.kind === 3) && (
+        {tech === "meshcore" && (c.kind === 2 || c.kind === 3) && (
           <Button onClick={() => go(`/contacts/${c.id}/manage`)}>
             <SlidersHorizontal className="size-4" aria-hidden /> Remote manage
           </Button>
         )}
-        {c.kind === 1 && (
+        {(c.kind === 1 || tech === "meshtastic") && (
           <Button onClick={() => void message()}>
             <MessageSquare className="size-4" aria-hidden /> Send message
           </Button>

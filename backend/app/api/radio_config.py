@@ -15,14 +15,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_auth, require_session
+from app.api.deps import AuthContext, meshcore_only, require_auth, require_session
 from app.db import get_db
 from app.models import AuditEvent
 from app.radio.base import PUBLIC_CHANNEL_KEY, NotSupported, RadioError, hashtag_key
 from app.radio.supervisor import supervisor
 from app.services import radio_presets
 
-router = APIRouter(prefix="/api/radio", tags=["radio-config"])
+router = APIRouter(prefix="/api/radio", tags=["radio-config"], dependencies=[Depends(meshcore_only)])
 
 # Standard LoRa bandwidths (kHz) accepted by SX126x/SX127x radios.
 LORA_BANDWIDTHS = (7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125.0, 250.0, 500.0)

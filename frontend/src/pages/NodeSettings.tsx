@@ -10,6 +10,8 @@ import { Dialog } from "../components/Dialog";
 import { AddChannelDialog } from "../components/AddChannel";
 import { normaliseScope, scopeError } from "../lib/channelLink";
 import { useStatus } from "./Shell";
+import { useTech } from "../lib/queries";
+import { MeshtasticNodeSettings } from "../components/MeshtasticSettings";
 import { canCopy, canLocate, cx } from "../lib/util";
 import { browserLocation, fmtCoord } from "../lib/geo";
 
@@ -93,7 +95,12 @@ function useSection<T>(path: string) {
   return { ...m, saved };
 }
 
+/** The radio's own settings: MeshCore's or Meshtastic's, whichever MeshHome runs. */
 export function NodeSettings() {
+  return useTech() === "meshtastic" ? <MeshtasticNodeSettings /> : <MeshCoreNodeSettings />;
+}
+
+function MeshCoreNodeSettings() {
   const status = useStatus();
   const connected = status.data?.radio.state === "connected";
   const cfg = useQuery({

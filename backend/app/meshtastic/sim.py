@@ -1,10 +1,12 @@
 """A simulated Meshtastic node, to rehearse tracking without hardware (and for the tests).
 
 It speaks the same protobuf messages as meshtasticd over the API, so the real connection code
-runs against it. Its mesh: this node ("MeshHome base"), a router at the car, and two trackers
-running the simulated course (the first visible course, as for the simulated MeshCore tracker),
-one a few minutes behind the other. The trackers broadcast their position every 30 seconds and
-their battery and environment readings every 2 minutes, heard directly or through the car.
+runs against it. Its mesh: this node ("MeshHome base"), a router at the car, two trackers running
+the simulated course (the first visible course, as for the simulated MeshCore tracker), one a few
+minutes behind the other, and a hiker with a handheld who chats on the primary channel now and
+then and answers direct messages. The trackers broadcast their position every 30 seconds and
+their battery and environment readings every 2 minutes, heard directly or through the car. Direct
+messages are acknowledged by their recipient, as on a real mesh.
 Settings changed through admin messages are kept until the app restarts; a change of region
 "reboots" the node, which closes the connection as meshtasticd does.
 """
@@ -24,7 +26,16 @@ from app.meshtastic.client import Link
 BASE_NUM = 0x4D480001
 CAR_NUM = 0x0CA12A0C  # its low byte names it as a relay (0 would mean "unknown")
 TRACKERS = ((0xE1A20001, "X1 Tracker 1", "X1A", 0.0), (0xE1A20002, "X1 Tracker 2", "X1B", 420.0))
+HIKER = (0xB0B0CA75, "Hiker Sam", "SAM")
+CHATTER = (
+    "Morning all, anyone on the ridge trail?",
+    "Water station 3 is stocked",
+    "Heading back to camp",
+    "Signal's good up here",
+    "Saw the runners go through about 10 minutes ago",
+)
 POSITION_EVERY = 30.0
+CHATTER_EVERY = (240.0, 480.0)
 TELEMETRY_EVERY = 120.0
 
 # Kept across reconnects (like the node's flash), until the app restarts.
@@ -49,6 +60,12 @@ def _defaults() -> dict[str, Any]:
             }
         },
         "owner": {"id": P.node_id(BASE_NUM), "long_name": "MeshHome base", "short_name": "MHB"},
+        "device": {"role": 0},
+        "favorites": set(),
+        "removed": set(),
+        "position": None,
+        # Nodes that have this radio's key (the car hasn't heard its node info yet).
+        "have_key": {HIKER[0], *(t[0] for t in TRACKERS)},
     }
 
 
@@ -110,37 +127,44 @@ class SimLink(Link):
     def _send_config(self, nonce: int) -> None:
         self._emit({"my_info": {"my_node_num": BASE_NUM, "pio_env": "native", "nodedb_count": 4}})
         now = int(time.time())
-        self._emit(
-            {"node_info": {"num": BASE_NUM, "user": {**_state["owner"], "hw_model": 37}, "is_favorite": True}}
-        )
-        self._emit(
+        base: dict[str, Any] = {"num": BASE_NUM, "user": {**_state["owner"], "hw_model": 37}}
+        if _state["position"]:
+            base["position"] = _state["position"]
+        self._emit({"node_info": base})
+        others = [
             {
-                "node_info": {
-                    "num": CAR_NUM,
-                    "user": _user(CAR_NUM, "Car Router", "CAR", 2),
-                    "last_heard": now - 40,
-                    "snr": 7.25,
-                    "hops_away": 0,
-                    "device_metrics": {"battery_level": 101, "voltage": 4.9},
-                }
-            }
-        )
-        for num, long, short, _ in TRACKERS:
-            self._emit(
-                {
-                    "node_info": {
-                        "num": num,
-                        "user": _user(num, long, short, 5),
-                        "last_heard": now - 300,
-                        "hops_away": 1,
-                    }
-                }
-            )
+                "num": CAR_NUM,
+                "user": _user(CAR_NUM, "Car Router", "CAR", 2),
+                "last_heard": now - 40,
+                "snr": 7.25,
+                "hops_away": 0,
+                "device_metrics": {"battery_level": 101, "voltage": 4.9},
+            },
+            *(
+                {"num": num, "user": _user(num, long, short, 5), "last_heard": now - 300, "hops_away": 1}
+                for num, long, short, _ in TRACKERS
+            ),
+            {
+                "num": HIKER[0],
+                "user": _user(HIKER[0], HIKER[1], HIKER[2], 0),
+                "last_heard": now - 120,
+                "snr": 3.5,
+                "hops_away": 1,
+                "position": self._hiker_position(),
+                "device_metrics": {"battery_level": 76, "voltage": 3.98},
+            },
+        ]
+        for ni in others:
+            if ni["num"] in _state["removed"]:
+                continue
+            if ni["num"] in _state["favorites"]:
+                ni["is_favorite"] = True
+            self._emit({"node_info": ni})
         self._emit({"metadata": {"firmware_version": "2.7.26.sim", "hw_model": 37, "hasPKC": True}})
         for i in range(8):
             ch = _state["channels"].get(i) or {"index": i, "role": P.DISABLED, "settings": {}}
             self._emit({"channel": ch})
-        self._emit({"config": {"device": {"role": 0}}})
+        self._emit({"config": {"device": _state["device"]}})
         self._emit({"config": {"lora": _state["lora"]}})
         self._emit({"config_complete_id": nonce})
 
@@ -163,11 +187,71 @@ class SimLink(Link):
             P.encode({"error_reason": error}, {3: ("error_reason", "enum")}) if error else b"",
         )
 
+    def _later(self, fast: float, slow: tuple[float, float], fn: Any, *args: Any) -> None:
+        delay = fast if self._fast else self._rng.uniform(*slow)
+        asyncio.get_running_loop().call_later(delay, fn, *args)
+
+    def _known(self, num: int) -> bool:
+        return num not in _state["removed"] and num in (CAR_NUM, HIKER[0], *(t[0] for t in TRACKERS))
+
+    def _routing_from(self, frm: int, request_id: int, error: int = 0) -> None:
+        payload = P.encode({"error_reason": error}, P.ROUTING) if error else b""
+        self._emit(
+            {
+                "packet": {
+                    "from": frm,
+                    "to": BASE_NUM,
+                    "id": self._rng.randint(1, 0xFFFFFFFF),
+                    "rx_time": int(time.time()),
+                    "decoded": {"portnum": P.ROUTING_APP, "payload": payload, "request_id": request_id},
+                }
+            }
+        )
+
+    def _on_text(self, pkt: dict[str, Any], text: str) -> None:
+        pid, to = int(pkt.get("id") or 0), int(pkt.get("to") or 0)
+        if to == P.BROADCAST:
+            # Someone repeated it: the node's "implicit" acknowledgement of a broadcast.
+            self._later(0.1, (1.0, 3.0), self._routing_from, BASE_NUM, pid)
+        elif self._known(to) and to not in _state["have_key"]:
+            # It can't open a direct message encrypted for it without our key: it refuses it.
+            self._later(0.2, (2.0, 6.0), self._routing_from, to, pid, 35)
+        elif self._known(to):
+            self._later(0.2, (2.0, 6.0), self._routing_from, to, pid)
+            if to == HIKER[0]:
+                self._later(0.5, (6.0, 15.0), self._hiker_says, f"Got your message: {text[:60]}", BASE_NUM)
+        else:
+            # Never acknowledged: after its retries the node gives up.
+            self._later(0.3, (20.0, 30.0), self._routing_from, BASE_NUM, pid, 5)
+
+    def _hiker_says(self, text: str, to: int = P.BROADCAST) -> None:
+        if HIKER[0] in _state["removed"]:
+            return
+        self._packet(HIKER[0], P.TEXT_MESSAGE_APP, text.encode(), to=to)
+
+    def inject_text(self) -> None:
+        """ "Simulate incoming message": the hiker says something on the primary channel."""
+        self._hiker_says(self._rng.choice(CHATTER))
+
+    def _hiker_position(self) -> dict[str, Any]:
+        from app.radio.simulated import sim_tracker_position
+
+        lat, lon = sim_tracker_position(0)
+        return {
+            "latitude_i": int((lat + 0.004) * 1e7),
+            "longitude_i": int((lon - 0.006) * 1e7),
+            "time": int(time.time()),
+        }
+
     def _on_packet(self, pkt: dict[str, Any]) -> None:
         dec = pkt.get("decoded") or {}
         pid = int(pkt.get("id") or 0)
         to = int(pkt.get("to") or 0)
-        if dec.get("portnum") == P.ADMIN_APP and to == BASE_NUM:
+        if dec.get("portnum") == P.TEXT_MESSAGE_APP:
+            self._on_text(pkt, (dec.get("payload") or b"").decode("utf-8", "replace"))
+        elif dec.get("portnum") == P.NODEINFO_APP and self._known(to):
+            _state["have_key"].add(to)  # it has our key now
+        elif dec.get("portnum") == P.ADMIN_APP and to == BASE_NUM:
             self._on_admin(pid, P.decode(dec.get("payload") or b"", P.ADMIN))
         elif dec.get("portnum") == P.POSITION_APP and dec.get("want_response"):
             tracker = next((t for t in TRACKERS if t[0] == to), None)
@@ -205,6 +289,17 @@ class SimLink(Link):
             if "set_channel" in m:
                 ch = {k: v for k, v in m["set_channel"].items() if k != "_raw"}
                 _state["channels"][int(ch.get("index") or 0)] = _clean(ch)
+            if "set_config" in m and "device" in m["set_config"]:
+                _state["device"] = _clean(m["set_config"]["device"])
+            for key, add in (("set_favorite_node", True), ("remove_favorite_node", False)):
+                if m.get(key):
+                    (_state["favorites"].add if add else _state["favorites"].discard)(int(m[key]))
+            if m.get("remove_by_nodenum"):
+                _state["removed"].add(int(m["remove_by_nodenum"]))
+            if "set_fixed_position" in m:
+                _state["position"] = {**_clean(m["set_fixed_position"]), "time": int(time.time())}
+            if m.get("remove_fixed_position"):
+                _state["position"] = None
             if "set_config" in m and "lora" in m["set_config"]:
                 lora = _clean(m["set_config"]["lora"])
                 reboot = reboot or lora.get("region") != _state["lora"].get("region")
@@ -223,7 +318,9 @@ class SimLink(Link):
         channel). On the default public channel their positions arrive blurred."""
         return _state["channels"][0]["settings"].get("psk", P.DEFAULT_PSK) != P.DEFAULT_PSK
 
-    def _packet(self, frm: int, portnum: int, payload: bytes, *, request_id: int | None = None) -> None:
+    def _packet(
+        self, frm: int, portnum: int, payload: bytes, *, request_id: int | None = None, to: int | None = None
+    ) -> None:
         via_car = self._rng.random() < 0.6
         hop_start = int(_state["lora"].get("hop_limit") or 3)
         data: dict[str, Any] = {"portnum": portnum, "payload": payload}
@@ -233,7 +330,7 @@ class SimLink(Link):
             {
                 "packet": {
                     "from": frm,
-                    "to": BASE_NUM if request_id else P.BROADCAST,
+                    "to": to if to is not None else BASE_NUM if request_id else P.BROADCAST,
                     "id": self._rng.randint(1, 0xFFFFFFFF),
                     "channel": 0,
                     "rx_time": int(time.time()),
@@ -293,6 +390,7 @@ class SimLink(Link):
     async def _broadcasts(self) -> None:
         n = 0
         last_tel = -1e9
+        next_chatter = time.monotonic() + self._rng.uniform(*CHATTER_EVERY)
         step = 0.5 if self._fast else POSITION_EVERY
         if not self._fast:
             await asyncio.sleep(3)
@@ -304,6 +402,9 @@ class SimLink(Link):
                 for t in TRACKERS:
                     self._telemetry(t, n)
                 n += 1
+            if not self._fast and time.monotonic() >= next_chatter:
+                next_chatter = time.monotonic() + self._rng.uniform(*CHATTER_EVERY)
+                self.inject_text()
             await asyncio.sleep(step)
 
 

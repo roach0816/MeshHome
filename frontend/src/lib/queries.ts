@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type SetupStatus, type UpdateInfo } from "./api";
+import { api, type RadioTech, type SetupStatus, type Status, type UpdateInfo } from "./api";
 
 export function useSetupStatus() {
   return useQuery({
@@ -18,3 +18,16 @@ export function useUpdateInfo() {
     retry: false,
   });
 }
+
+export function useStatus() {
+  return useQuery({ queryKey: ["status"], queryFn: () => api<Status>("/api/status"), refetchInterval: 15000 });
+}
+
+/** The mesh technology MeshHome runs ("meshcore" until the status has loaded). Features of the
+ * other technology are hidden. */
+export function useTech(): RadioTech {
+  return useStatus().data?.radio_config.tech ?? "meshcore";
+}
+
+/** Shown in place of a MeshCore feature while Meshtastic is in use (and the other way round). */
+export const TECH_NAME: Record<RadioTech, string> = { meshcore: "MeshCore", meshtastic: "Meshtastic" };

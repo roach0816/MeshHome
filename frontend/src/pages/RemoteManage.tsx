@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
+import { useTech } from "../lib/queries";
 import {
   Check,
   ChevronDown,
@@ -265,7 +266,22 @@ function CliSetting({ id, state, setting, label, hint, options, inputMode = "tex
 
 // ---- page -------------------------------------------------------------------------------
 
+/** Remote management is MeshCore's (repeaters and room servers): not shown while MeshHome runs Meshtastic. */
 export function RemoteManage() {
+  if (useTech() !== "meshcore") {
+    return (
+      <div className="p-6 text-sm text-muted">
+        Remote management is a MeshCore feature, and MeshHome is running Meshtastic.{" "}
+        <Link to="/contacts" className="text-accent underline">
+          Back to contacts
+        </Link>
+      </div>
+    );
+  }
+  return <MeshCoreRemoteManage />;
+}
+
+function MeshCoreRemoteManage() {
   const { id = "" } = useParams();
   const remote = useRemote(id);
   const qc = useQueryClient();

@@ -51,11 +51,13 @@ class MapData(BaseModel):
 
 @router.get("/map", response_model=MapData)
 async def map_data(ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)):
+    tech = await app_settings.get_tech(db)
     rows = (
         await db.execute(
             select(Contact, Radio.is_simulated, Conversation.id)
             .join(Radio, Radio.id == Contact.radio_id)
             .outerjoin(Conversation, Conversation.contact_id == Contact.id)
+            .where(Radio.tech == tech)
         )
     ).all()
     nodes, without = [], 0
@@ -80,7 +82,7 @@ async def map_data(ctx: AuthContext = Depends(require_auth), db: AsyncSession = 
         )
     live_id = supervisor.radio.id if supervisor.connected and supervisor.radio else None
     gateways = []
-    for r in (await db.execute(select(Radio))).scalars():
+    for r in (await db.execute(select(Radio).where(Radio.tech == tech))).scalars():
         loc = (r.self_info or {}).get("location") or {}
         if loc.get("lat") is not None and loc.get("lon") is not None:
             gateways.append(

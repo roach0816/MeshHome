@@ -248,6 +248,7 @@ USER: Schema = {
     6: ("is_licensed", "bool"),
     7: ("role", "enum"),
     8: ("public_key", "bytes"),
+    9: ("is_unmessagable", "bool"),
 }
 
 DEVICE_METRICS: Schema = {
@@ -279,6 +280,7 @@ DATA: Schema = {
     5: ("source", "fixed32"),
     6: ("request_id", "fixed32"),
     7: ("reply_id", "fixed32"),
+    8: ("emoji", "fixed32"),
     9: ("bitfield", "uint"),
 }
 
@@ -322,6 +324,7 @@ NODE_INFO: Schema = {
     8: ("via_mqtt", "bool"),
     9: ("hops_away", "uint"),
     10: ("is_favorite", "bool"),
+    11: ("is_ignored", "bool"),
 }
 
 MODULE_SETTINGS: Schema = {1: ("position_precision", "uint"), 2: ("is_client_muted", "bool")}
@@ -390,6 +393,9 @@ TO_RADIO: Schema = {
 }
 
 # AdminMessage.ConfigType
+ROUTING: Schema = {3: ("error_reason", "enum")}
+
+DEVICE_CONFIG_TYPE = 0
 LORA_CONFIG_TYPE = 5
 SESSIONKEY_CONFIG_TYPE = 8
 
@@ -400,9 +406,17 @@ ADMIN: Schema = {
     4: ("get_owner_response", USER),
     5: ("get_config_request", "enum"),
     6: ("get_config_response", CONFIG),
+    12: ("get_device_metadata_request", "bool"),
     32: ("set_owner", USER),
     33: ("set_channel", CHANNEL),
     34: ("set_config", CONFIG),
+    38: ("remove_by_nodenum", "uint"),
+    39: ("set_favorite_node", "uint"),
+    40: ("remove_favorite_node", "uint"),
+    41: ("set_fixed_position", POSITION),
+    42: ("remove_fixed_position", "bool"),
+    47: ("set_ignored_node", "uint"),
+    48: ("remove_ignored_node", "uint"),
     64: ("begin_edit_settings", "bool"),
     65: ("commit_edit_settings", "bool"),
     101: ("session_passkey", "bytes"),

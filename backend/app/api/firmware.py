@@ -7,13 +7,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_auth, require_session
+from app.api.deps import AuthContext, meshcore_only, require_auth, require_session
 from app.db import get_db
 from app.models import Radio
 from app.radio.supervisor import supervisor
 from app.services import app_settings, firmware, radio_hat
 
-router = APIRouter(prefix="/api/radio/firmware", tags=["radio firmware"])
+router = APIRouter(
+    prefix="/api/radio/firmware", tags=["radio firmware"], dependencies=[Depends(meshcore_only)]
+)
 
 
 async def _radio(db: AsyncSession) -> Radio | None:

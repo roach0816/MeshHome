@@ -2,8 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LocateFixed, LogOut, Map as MapIcon, MessagesSquare, Settings as SettingsIcon, Users } from "lucide-react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
-import { api, type AppInstall, type Me, type Status, type TrackingConfig } from "../lib/api";
-import { useSetupStatus, useUpdateInfo } from "../lib/queries";
+import { api, type AppInstall, type Me, type TrackingConfig } from "../lib/api";
+import { useSetupStatus, useStatus, useUpdateInfo } from "../lib/queries";
 import type { SoundSetting } from "../lib/sound";
 import { httpsPage, resyncPush, syncAppInstall, syncUnread, type WebPushStatus } from "../lib/pwa";
 import { useRealtime } from "../lib/realtime";
@@ -34,9 +34,7 @@ export function useTrackingSettings() {
   });
 }
 
-export function useStatus() {
-  return useQuery({ queryKey: ["status"], queryFn: () => api<Status>("/api/status"), refetchInterval: 15000 });
-}
+export { useStatus } from "../lib/queries";
 
 function NavItem({ to, label, icon: Icon }: { to: string; label: string; icon: typeof Users }) {
   return (
@@ -114,6 +112,15 @@ export function Shell({ me }: { me: Me }) {
   }, [navigate]);
   const status = useStatus();
   const tracking = useTrackingSettings();
+  // MeshCore or Meshtastic changed (here, in another browser, or by switching the HAT): every
+  // list belongs to the other technology now, so read everything again.
+  const tech = status.data?.radio_config.tech;
+  const lastTech = useRef(tech);
+  const qcShell = useQueryClient();
+  useEffect(() => {
+    if (tech && lastTech.current && tech !== lastTech.current) qcShell.invalidateQueries();
+    if (tech) lastTech.current = tech;
+  }, [tech, qcShell]);
   const { pathname } = useLocation();
   const atRoot = pathname === "/";
   // Animate the sidebar back in on phones only when returning from a page, not on first load.

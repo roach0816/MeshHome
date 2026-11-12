@@ -56,6 +56,8 @@ export function Thread({ status }: { status?: Status }) {
 }
 
 function ThreadView({ conv, status }: { conv: Conversation; status?: Status }) {
+  // Signed channel messages are a MeshCore feature.
+  const tech = status?.radio_config.tech ?? "meshcore";
   const qc = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -224,7 +226,7 @@ function ThreadView({ conv, status }: { conv: Conversation; status?: Status }) {
           >
             <Star className={cx("size-5", conv.favorite && "fill-current text-warn")} />
           </IconButton>
-          {conv.kind === "channel" && !conv.archived && (
+          {conv.kind === "channel" && !conv.archived && tech === "meshcore" && (
             <IconButton
               label={conv.sign_messages ? "Signed messages (signing on)" : "Signed messages"}
               onClick={() => setSigning(true)}

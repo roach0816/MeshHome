@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { CheckCircle2, ChevronLeft, CircleAlert, Download, ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
 import { api, type UpdateInfo, type UpdateState, type UpdateStatus } from "../lib/api";
-import { useUpdateInfo } from "../lib/queries";
+import { useTech, useUpdateInfo } from "../lib/queries";
 import { Badge, Button, Card, ErrorText } from "../components/ui";
 import { Dialog } from "../components/Dialog";
 import { MarkdownLite } from "../components/MarkdownLite";
@@ -34,6 +34,7 @@ function Section({ title, children, aside }: { title: string; children: ReactNod
 export function Updates() {
   const qc = useQueryClient();
   const info = useUpdateInfo();
+  const tech = useTech();
   const [confirming, setConfirming] = useState(false);
   const [watching, setWatching] = useState(false);
   // True when this page started the update: an older status (e.g. a previous failure) must not
@@ -179,7 +180,7 @@ export function Updates() {
             </Section>
           )}
 
-          <RadioFirmwareSection />
+          {tech === "meshcore" && <RadioFirmwareSection />}
         </div>
       </div>
 

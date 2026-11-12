@@ -9,6 +9,7 @@ import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { Dialog } from "./Dialog";
 import { SignedMessagesDialog } from "./SignedMessages";
 import { Badge, Button, ErrorText, IconButton } from "./ui";
+import { useTech } from "../lib/queries";
 
 const CONTACT_KIND: Record<number, string> = { 1: "Companion", 2: "Repeater", 3: "Room server", 4: "Sensor" };
 
@@ -21,6 +22,7 @@ function deleteLabel(c: Conversation) {
 
 export function useConversationActions() {
   const qc = useQueryClient();
+  const tech = useTech();
   const navigate = useNavigate();
   const activeId = useMatch("/c/:id")?.params.id;
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -76,7 +78,9 @@ export function useConversationActions() {
       } satisfies MenuItem;
     })(),
     ...(c.kind === "channel" && !c.archived
-      ? [{ label: "Signed messages…", icon: <ShieldCheck className="size-4" />, onSelect: () => setSigningFor(c) }]
+      ? tech === "meshcore"
+        ? [{ label: "Signed messages…", icon: <ShieldCheck className="size-4" />, onSelect: () => setSigningFor(c) }]
+        : []
       : []),
     ...(c.contact_public_key && canCopy()
       ? [

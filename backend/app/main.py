@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
     async with db.session_factory()() as s:
         needs_setup = not await app_settings.setup_complete(s)
         await bot_apps_service.migrate(s)
+        await app_settings.migrate_meshtastic_settings(s)
         await s.commit()
     if needs_setup:
         token = auth.SetupToken.ensure()

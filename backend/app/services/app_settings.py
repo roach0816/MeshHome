@@ -12,9 +12,14 @@ from app.models import AppSetting, User, utcnow
 
 # "hat": the radio HAT on this Pi (ZephCore on 127.0.0.1:5000, managed by the native installer).
 RadioMode = Literal["simulated", "tcp", "hat", "none"]
+# The mesh technology MeshHome runs: everything (contacts, channels, messages, tracking) follows it.
+RadioTech = Literal["meshcore", "meshtastic"]
+MESHTASTIC_TCP_PORT = 4403
 
 
 class RadioConfig(BaseModel):
+    # With the radio HAT, the technology is what the HAT runs (effective_tech).
+    tech: RadioTech = "meshcore"
     mode: RadioMode = "simulated"
     host: str = ""
     port: int = Field(default=5000, ge=1, le=65535)
@@ -175,9 +180,9 @@ class MeshtasticConfig(BaseModel):
         return v
 
 
+# 1.1.x only (migrate_meshtastic_settings): Meshtastic trackers had a connection of their own, and
+# the MeshCore radio mode from before the HAT was switched to Meshtastic was kept here.
 MESHTASTIC_KEY = "meshtastic"
-# Internal: the MeshCore radio mode from before the radio HAT was switched to Meshtastic, restored
-# when it's switched back (api/system.py).
 HAT_SWITCH_KEY = "radio_hat_switch"
 SENSORS_KEY = "sensors"
 TRACKING_KEY = "tracking"
@@ -308,13 +313,46 @@ async def put_sensors_config(db: AsyncSession, cfg: SensorsConfig) -> None:
     await put_units(db, UnitsConfig(units=cfg.units))
 
 
-async def get_meshtastic_config(db: AsyncSession) -> MeshtasticConfig:
+def effective_tech(cfg: RadioConfig) -> RadioTech:
+    """The technology in use: the radio HAT's is what it runs (it can be switched outside the app,
+    with `meshhome radio-hat setup`)."""
+    if cfg.mode == "hat":
+        from app.services import radio_hat
+
+        return radio_hat.firmware()  # type: ignore[return-value]
+    return cfg.tech
+
+
+async def get_tech(db: AsyncSession) -> RadioTech:
+    return effective_tech(await get_radio_config(db))
+
+
+async def migrate_meshtastic_settings(db: AsyncSession) -> bool:
+    """From 1.1.x: Meshtastic trackers had a connection of their own (Settings → Tracking), and
+    switching the HAT to Meshtastic set the radio mode to None. Now Meshtastic is a technology of
+    the radio connection itself, so that connection becomes the radio's. Caller commits."""
     raw = await _get(db, MESHTASTIC_KEY)
-    return MeshtasticConfig.model_validate(raw) if raw else MeshtasticConfig()
-
-
-async def put_meshtastic_config(db: AsyncSession, cfg: MeshtasticConfig) -> None:
-    await _put(db, MESHTASTIC_KEY, cfg.model_dump())
+    switch = await _get(db, HAT_SWITCH_KEY) or {}
+    if raw is None and not switch:
+        return False
+    radio = await get_radio_config(db)
+    old = MeshtasticConfig.model_validate(raw) if raw else MeshtasticConfig()
+    if radio.mode == "none":
+        if switch.get("radio_mode") == "hat" or old.source == "hat":
+            radio = radio.model_copy(update={"mode": "hat", "tech": "meshtastic"})
+        elif old.source == "network" and old.host:
+            radio = radio.model_copy(
+                update={"mode": "tcp", "tech": "meshtastic", "host": old.host, "port": old.port}
+            )
+        elif old.source == "simulated":
+            radio = radio.model_copy(update={"mode": "simulated", "tech": "meshtastic"})
+        await put_radio_config(db, radio)
+    for key in (MESHTASTIC_KEY, HAT_SWITCH_KEY):
+        row = await db.get(AppSetting, key)
+        if row is not None:
+            await db.delete(row)
+    await db.flush()
+    return True
 
 
 async def get_tracking_config(db: AsyncSession) -> TrackingConfig:

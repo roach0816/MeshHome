@@ -2984,92 +2984,10 @@
         }
       }
     },
-    "/api/settings/meshtastic": {
-      "get": {
-        "tags": [
-          "tracking"
-        ],
-        "summary": "Get Meshtastic Settings",
-        "operationId": "get_meshtastic_settings_api_settings_meshtastic_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeshtasticConfig"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "tracking"
-        ],
-        "summary": "Put Meshtastic Settings",
-        "description": "Where Meshtastic trackers are heard: off, the radio HAT on this Pi (meshtasticd), a node on\nthe network (host, port 4403) or a simulated node. Runs while tracking is on.",
-        "operationId": "put_meshtastic_settings_api_settings_meshtastic_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MeshtasticConfig"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeshtasticConfig"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/tracking/meshtastic": {
-      "get": {
-        "tags": [
-          "tracking"
-        ],
-        "summary": "Get Meshtastic",
-        "description": "The Meshtastic node MeshHome is connected to (None while Meshtastic is off), and the LoRa\nregions and presets to choose from when setting up the team channel.",
-        "operationId": "get_meshtastic_api_tracking_meshtastic_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeshtasticOut"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/tracking/meshtastic/nodes": {
       "get": {
         "tags": [
+          "meshtastic",
           "tracking"
         ],
         "summary": "List Mesh Nodes",
@@ -3093,30 +3011,89 @@
         }
       }
     },
-    "/api/tracking/meshtastic/channel": {
-      "post": {
+    "/api/node/meshtastic": {
+      "get": {
         "tags": [
-          "tracking"
+          "meshtastic"
         ],
-        "summary": "Setup Team Channel",
-        "description": "Give the Meshtastic node a new private primary channel (a random key, positions at full\nprecision) and set its region and preset. Scan the channel's QR code (GET …/channel-url) into\neach tracker to join it. Changing the region or preset restarts the node.",
-        "operationId": "setup_team_channel_api_tracking_meshtastic_channel_post",
+        "summary": "Get Meshtastic Node",
+        "description": "The Meshtastic radio's settings (channel keys never leave the server).",
+        "operationId": "get_meshtastic_node_api_node_meshtastic_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MtConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/owner": {
+      "put": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Put Meshtastic Owner",
+        "description": "The name other nodes see (long name, up to 24 bytes) and its short form (up to 4).",
+        "operationId": "put_meshtastic_owner_api_node_meshtastic_owner_put",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TeamChannelIn"
+                "$ref": "#/components/schemas/OwnerIn"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "202": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/lora": {
+      "put": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Put Meshtastic Lora",
+        "description": "LoRa settings. Every node on the mesh needs the same region and modem preset.",
+        "operationId": "put_meshtastic_lora_api_node_meshtastic_lora_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoraIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LoraOut"
+                }
               }
             }
           },
@@ -3133,20 +3110,330 @@
         }
       }
     },
-    "/api/tracking/meshtastic/channel-url": {
-      "get": {
+    "/api/node/meshtastic/role": {
+      "put": {
         "tags": [
-          "tracking"
+          "meshtastic"
         ],
-        "summary": "Get Channel Url",
-        "operationId": "get_channel_url_api_tracking_meshtastic_channel_url_get",
+        "summary": "Put Meshtastic Role",
+        "description": "CLIENT is right for a base station; ROUTER only for a well-placed relay (it rebroadcasts\neverything).",
+        "operationId": "put_meshtastic_role_api_node_meshtastic_role_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/position": {
+      "put": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Put Meshtastic Position",
+        "operationId": "put_meshtastic_position_api_node_meshtastic_position_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/channels": {
+      "post": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Add Meshtastic Channel",
+        "description": "A new secondary channel in the first free slot (a private key unless `key` says otherwise).",
+        "operationId": "add_meshtastic_channel_api_node_meshtastic_channels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__meshtastic__ChannelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/channels/{index}": {
+      "put": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Put Meshtastic Channel",
+        "operationId": "put_meshtastic_channel_api_node_meshtastic_channels__index__put",
+        "parameters": [
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__meshtastic__ChannelIn"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChannelUrlOut"
+                  "$ref": "#/components/schemas/ChannelOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Delete Meshtastic Channel",
+        "operationId": "delete_meshtastic_channel_api_node_meshtastic_channels__index__delete",
+        "parameters": [
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/share-url": {
+      "get": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Get Meshtastic Share Url",
+        "description": "The share link for the given channels (comma-separated indexes; all of them by default).",
+        "operationId": "get_meshtastic_share_url_api_node_meshtastic_share_url_get",
+        "parameters": [
+          {
+            "name": "channels",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-7](,[0-7])*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channels"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareUrlOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/link-preview": {
+      "post": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Preview Meshtastic Link",
+        "description": "What a Meshtastic share link holds (channel names, key kinds, region and preset).",
+        "operationId": "preview_meshtastic_link_api_node_meshtastic_link_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/meshtastic/import": {
+      "post": {
+        "tags": [
+          "meshtastic"
+        ],
+        "summary": "Import Meshtastic Link",
+        "description": "Put a Meshtastic share link's channels on the radio (joining another group's channels).",
+        "operationId": "import_meshtastic_link_api_node_meshtastic_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3542,7 +3829,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ChannelIn"
+                "$ref": "#/components/schemas/app__api__radio_config__ChannelIn"
               }
             }
           }
@@ -5882,54 +6169,18 @@
         ],
         "title": "ChannelAddIn"
       },
-      "ChannelIn": {
+      "ChannelOut": {
         "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "key_mode": {
-            "type": "string",
-            "enum": [
-              "keep",
-              "hashtag",
-              "public",
-              "random",
-              "custom"
-            ],
-            "title": "Key Mode"
-          },
-          "key": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 64
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Key"
-          },
-          "flood_scope": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 31
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Flood Scope"
+          "index": {
+            "type": "integer",
+            "title": "Index"
           }
         },
         "type": "object",
         "required": [
-          "name",
-          "key_mode"
+          "index"
         ],
-        "title": "ChannelIn"
+        "title": "ChannelOut"
       },
       "ChannelScopeIn": {
         "properties": {
@@ -5948,37 +6199,6 @@
         },
         "type": "object",
         "title": "ChannelScopeIn"
-      },
-      "ChannelUrlOut": {
-        "properties": {
-          "url": {
-            "type": "string",
-            "title": "Url"
-          }
-        },
-        "type": "object",
-        "required": [
-          "url"
-        ],
-        "title": "ChannelUrlOut"
-      },
-      "Choice": {
-        "properties": {
-          "value": {
-            "type": "integer",
-            "title": "Value"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "value",
-          "name"
-        ],
-        "title": "Choice"
       },
       "CliIn": {
         "properties": {
@@ -6125,6 +6345,17 @@
             ],
             "title": "Conversation Id"
           },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
           "lat": {
             "anyOf": [
               {
@@ -6174,6 +6405,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/PreferredRouteOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meshtastic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeshtasticContact"
               },
               {
                 "type": "null"
@@ -6362,6 +6603,17 @@
             ],
             "title": "Conversation Id"
           },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
           "lat": {
             "anyOf": [
               {
@@ -6484,6 +6736,17 @@
               }
             ],
             "title": "Conversation Id"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
           }
         },
         "type": "object",
@@ -7525,6 +7788,44 @@
         ],
         "title": "Hop"
       },
+      "ImportIn": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Url"
+          },
+          "replace": {
+            "type": "boolean",
+            "title": "Replace",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ImportIn"
+      },
+      "ImportOut": {
+        "properties": {
+          "added": {
+            "type": "integer",
+            "title": "Added"
+          },
+          "restarts": {
+            "type": "boolean",
+            "title": "Restarts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "added",
+          "restarts"
+        ],
+        "title": "ImportOut"
+      },
       "InstallIn": {
         "properties": {
           "settings": {
@@ -7685,6 +7986,84 @@
         ],
         "title": "Keys"
       },
+      "LinkChannel": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "key": {
+            "type": "string",
+            "enum": [
+              "default",
+              "private",
+              "none"
+            ],
+            "title": "Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "key"
+        ],
+        "title": "LinkChannel"
+      },
+      "LinkIn": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "LinkIn"
+      },
+      "LinkPreview": {
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/LinkChannel"
+            },
+            "type": "array",
+            "title": "Channels"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "channels",
+          "region",
+          "preset"
+        ],
+        "title": "LinkPreview"
+      },
       "LoginIn": {
         "properties": {
           "password": {
@@ -7718,6 +8097,73 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "LoraIn": {
+        "properties": {
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "hop_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 7.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hop Limit"
+          },
+          "tx_power_dbm": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Power Dbm"
+          }
+        },
+        "type": "object",
+        "title": "LoraIn"
+      },
+      "LoraOut": {
+        "properties": {
+          "restarts": {
+            "type": "boolean",
+            "title": "Restarts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "restarts"
+        ],
+        "title": "LoraOut"
       },
       "MapConfig": {
         "properties": {
@@ -8073,80 +8519,8 @@
         ],
         "title": "MeshNodeOut"
       },
-      "MeshtasticChannel": {
+      "MeshtasticContact": {
         "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "private": {
-            "type": "boolean",
-            "title": "Private"
-          },
-          "precise": {
-            "type": "boolean",
-            "title": "Precise"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "private",
-          "precise"
-        ],
-        "title": "MeshtasticChannel"
-      },
-      "MeshtasticConfig": {
-        "properties": {
-          "source": {
-            "type": "string",
-            "enum": [
-              "off",
-              "hat",
-              "network",
-              "simulated"
-            ],
-            "title": "Source",
-            "default": "off"
-          },
-          "host": {
-            "type": "string",
-            "maxLength": 253,
-            "title": "Host",
-            "default": ""
-          },
-          "port": {
-            "type": "integer",
-            "maximum": 65535.0,
-            "minimum": 1.0,
-            "title": "Port",
-            "default": 4403
-          }
-        },
-        "type": "object",
-        "title": "MeshtasticConfig"
-      },
-      "MeshtasticNodeInfo": {
-        "properties": {
-          "num": {
-            "type": "integer",
-            "title": "Num"
-          },
-          "node_id": {
-            "type": "string",
-            "title": "Node Id"
-          },
-          "long_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Long Name"
-          },
           "short_name": {
             "anyOf": [
               {
@@ -8158,7 +8532,7 @@
             ],
             "title": "Short Name"
           },
-          "firmware": {
+          "role": {
             "anyOf": [
               {
                 "type": "string"
@@ -8167,129 +8541,85 @@
                 "type": "null"
               }
             ],
-            "title": "Firmware"
+            "title": "Role"
+          },
+          "hw_model": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hw Model"
+          },
+          "battery_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Level"
+          },
+          "voltage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voltage"
+          },
+          "snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr"
+          },
+          "hops_away": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hops Away"
+          },
+          "via_mqtt": {
+            "type": "boolean",
+            "title": "Via Mqtt"
+          },
+          "encrypted_dms": {
+            "type": "boolean",
+            "title": "Encrypted Dms"
           }
         },
         "type": "object",
         "required": [
-          "num",
-          "node_id",
-          "long_name",
           "short_name",
-          "firmware"
+          "role",
+          "hw_model",
+          "battery_level",
+          "voltage",
+          "snr",
+          "hops_away",
+          "via_mqtt",
+          "encrypted_dms"
         ],
-        "title": "MeshtasticNodeInfo"
-      },
-      "MeshtasticOut": {
-        "properties": {
-          "status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MeshtasticStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "regions": {
-            "items": {
-              "$ref": "#/components/schemas/Choice"
-            },
-            "type": "array",
-            "title": "Regions"
-          },
-          "presets": {
-            "items": {
-              "$ref": "#/components/schemas/Choice"
-            },
-            "type": "array",
-            "title": "Presets"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status",
-          "regions",
-          "presets"
-        ],
-        "title": "MeshtasticOut"
-      },
-      "MeshtasticStatus": {
-        "properties": {
-          "source": {
-            "type": "string",
-            "title": "Source"
-          },
-          "state": {
-            "type": "string",
-            "title": "State"
-          },
-          "detail": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Detail"
-          },
-          "node": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MeshtasticNodeInfo"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "region": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Region"
-          },
-          "preset": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preset"
-          },
-          "channel": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MeshtasticChannel"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "source",
-          "state",
-          "detail",
-          "node",
-          "region",
-          "preset",
-          "channel"
-        ],
-        "title": "MeshtasticStatus"
+        "title": "MeshtasticContact"
       },
       "MessageOut": {
         "properties": {
@@ -8489,6 +8819,199 @@
           "features"
         ],
         "title": "Meta"
+      },
+      "MtChannel": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "primary": {
+            "type": "boolean",
+            "title": "Primary"
+          },
+          "key": {
+            "type": "string",
+            "enum": [
+              "default",
+              "private",
+              "none"
+            ],
+            "title": "Key"
+          },
+          "position_precision": {
+            "type": "integer",
+            "title": "Position Precision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "name",
+          "display_name",
+          "primary",
+          "key",
+          "position_precision"
+        ],
+        "title": "MtChannel"
+      },
+      "MtConfig": {
+        "properties": {
+          "node": {
+            "$ref": "#/components/schemas/MtNode"
+          },
+          "lora": {
+            "$ref": "#/components/schemas/MtLora"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/MtChannel"
+            },
+            "type": "array",
+            "title": "Channels"
+          },
+          "regions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Regions"
+          },
+          "presets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Presets"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node",
+          "lora",
+          "channels",
+          "regions",
+          "presets",
+          "roles"
+        ],
+        "title": "MtConfig"
+      },
+      "MtLora": {
+        "properties": {
+          "region": {
+            "type": "string",
+            "title": "Region"
+          },
+          "preset": {
+            "type": "string",
+            "title": "Preset"
+          },
+          "hop_limit": {
+            "type": "integer",
+            "title": "Hop Limit"
+          },
+          "tx_power_dbm": {
+            "type": "integer",
+            "title": "Tx Power Dbm"
+          },
+          "tx_enabled": {
+            "type": "boolean",
+            "title": "Tx Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "region",
+          "preset",
+          "hop_limit",
+          "tx_power_dbm",
+          "tx_enabled"
+        ],
+        "title": "MtLora"
+      },
+      "MtNode": {
+        "properties": {
+          "num": {
+            "type": "integer",
+            "title": "Num"
+          },
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "long_name": {
+            "type": "string",
+            "title": "Long Name"
+          },
+          "short_name": {
+            "type": "string",
+            "title": "Short Name"
+          },
+          "firmware": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "num",
+          "node_id",
+          "long_name",
+          "short_name",
+          "firmware",
+          "role",
+          "lat",
+          "lon"
+        ],
+        "title": "MtNode"
       },
       "MyContact": {
         "properties": {
@@ -8698,6 +9221,28 @@
         ],
         "title": "OptionOut"
       },
+      "OwnerIn": {
+        "properties": {
+          "long_name": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Long Name"
+          },
+          "short_name": {
+            "type": "string",
+            "maxLength": 4,
+            "minLength": 1,
+            "title": "Short Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "long_name",
+          "short_name"
+        ],
+        "title": "OwnerIn"
+      },
       "Pace": {
         "properties": {
           "speed_mps": {
@@ -8804,6 +9349,38 @@
           "enabled"
         ],
         "title": "Place"
+      },
+      "PositionIn": {
+        "properties": {
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 90.0,
+                "minimum": -90.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 180.0,
+                "minimum": -180.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          }
+        },
+        "type": "object",
+        "title": "PositionIn"
       },
       "PreferredRouteIn": {
         "properties": {
@@ -8990,6 +9567,15 @@
       },
       "RadioConfig": {
         "properties": {
+          "tech": {
+            "type": "string",
+            "enum": [
+              "meshcore",
+              "meshtastic"
+            ],
+            "title": "Tech",
+            "default": "meshcore"
+          },
           "mode": {
             "type": "string",
             "enum": [
@@ -9154,6 +9740,15 @@
       },
       "RadioSettingsIn": {
         "properties": {
+          "tech": {
+            "type": "string",
+            "enum": [
+              "meshcore",
+              "meshtastic"
+            ],
+            "title": "Tech",
+            "default": "meshcore"
+          },
           "mode": {
             "type": "string",
             "enum": [
@@ -9293,6 +9888,19 @@
         },
         "type": "object",
         "title": "RetryRequest"
+      },
+      "RoleIn": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "RoleIn"
       },
       "RoutingConfig": {
         "properties": {
@@ -9809,6 +10417,17 @@
             "type": "boolean",
             "title": "Radio Hat Ready",
             "default": false
+          },
+          "radio_hat_firmware": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Radio Hat Firmware"
           }
         },
         "type": "object",
@@ -9817,6 +10436,19 @@
           "version"
         ],
         "title": "SetupStatus"
+      },
+      "ShareUrlOut": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ShareUrlOut"
       },
       "SignatureOut": {
         "properties": {
@@ -9992,44 +10624,6 @@
           "last_error"
         ],
         "title": "SubscriptionOut"
-      },
-      "TeamChannelIn": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 11,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "title": "Name"
-          },
-          "region": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Region"
-          },
-          "preset": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preset"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "TeamChannelIn"
       },
       "TelemetryIn": {
         "properties": {
@@ -10636,15 +11230,10 @@
             "type": "object",
             "title": "Offline"
           },
-          "meshtastic": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MeshtasticStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "tech": {
+            "type": "string",
+            "title": "Tech",
+            "default": "meshcore"
           }
         },
         "type": "object",
@@ -10811,6 +11400,101 @@
           "devices"
         ],
         "title": "WebPushStatus"
+      },
+      "app__api__meshtastic__ChannelIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{0,11}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "random",
+                  "default"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "position_precision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 32.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Precision"
+          }
+        },
+        "type": "object",
+        "title": "ChannelIn"
+      },
+      "app__api__radio_config__ChannelIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "key_mode": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "hashtag",
+              "public",
+              "random",
+              "custom"
+            ],
+            "title": "Key Mode"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "flood_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 31
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flood Scope"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "key_mode"
+        ],
+        "title": "ChannelIn"
       },
       "app__api__radio_config__IdentityIn": {
         "properties": {

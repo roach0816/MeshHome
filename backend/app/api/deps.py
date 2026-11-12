@@ -223,3 +223,14 @@ async def require_session(ctx: AuthContext = Depends(require_auth)) -> AuthConte
             status.HTTP_403_FORBIDDEN, "API keys cannot use this endpoint; use the web interface"
         )
     return ctx
+
+
+async def meshcore_only(db: AsyncSession = Depends(get_db)) -> None:
+    """For MeshCore features (remote administration, routes and traces, MeshCore's node settings,
+    contact sharing, radio firmware and backups): unavailable while MeshHome runs Meshtastic."""
+    from app.services import app_settings
+
+    if await app_settings.get_tech(db) != "meshcore":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "That's a MeshCore feature, and MeshHome is running Meshtastic"
+        )

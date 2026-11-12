@@ -18,10 +18,11 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import AuditEvent, Channel, Contact, Conversation, Message, Radio, ReadPosition, utcnow
 from app.radio.base import CHANNEL_MAX_BYTES, DM_MAX_BYTES
+from app.radio.meshtastic_radio import TEXT_MAX_BYTES as MESHTASTIC_TEXT_MAX_BYTES
 from app.radio.supervisor import supervisor
 from app.realtime import hub
 from app.security import send_limiter
-from app.services import messaging, signed_messages
+from app.services import app_settings, messaging, signed_messages
 from app.services.messaging import States
 
 router = APIRouter(prefix="/api", tags=["inbox"])
@@ -131,6 +132,13 @@ class SearchHit(MessageOut):
 # ---- helpers ----------------------------------------------------------------------------
 
 
+def message_budget(radio: Radio, conv: Conversation, signed: bool = False) -> int:
+    """How many bytes of text a message in this conversation can have."""
+    if radio.tech == "meshtastic":
+        return MESHTASTIC_TEXT_MAX_BYTES  # no name prefix or signature
+    return channel_budget(radio.name, signed) if conv.kind == "channel" else DM_MAX_BYTES
+
+
 def channel_budget(radio_name: str, signed: bool = False) -> int:
     # Channel text is transmitted as "<node name>: <body>", and a signature takes part of it.
     overhead = signed_messages.OVERHEAD if signed else 0
@@ -189,6 +197,9 @@ async def _conversation_rows(db: AsyncSession, user_id: uuid.UUID, conv_id: uuid
     )
     if conv_id:
         q = q.where(Conversation.id == conv_id)
+    else:
+        # The technology in use (MeshCore or Meshtastic): its radios' conversations.
+        q = q.where(Radio.tech == await app_settings.get_tech(db))
     rows = (await db.execute(q)).all()
     if not rows:
         return []
@@ -251,9 +262,7 @@ async def _conversation_rows(db: AsyncSession, user_id: uuid.UUID, conv_id: uuid
                 contact_id=contact.id if contact else None,
                 contact_public_key=contact.public_key if contact else None,
                 peer_prefix=conv.peer_prefix,
-                max_bytes=channel_budget(radio.name, conv.sign_messages)
-                if conv.kind == "channel"
-                else DM_MAX_BYTES,
+                max_bytes=message_budget(radio, conv, conv.sign_messages),
                 sign_messages=conv.sign_messages,
                 contacts_only=conv.contacts_only,
                 preview=Preview(
@@ -317,6 +326,9 @@ async def patch_conversation(
     if body.sign_messages is not None or body.contacts_only is not None:
         if conv.kind != "channel":
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Signed messages are for channels")
+        conv_radio = await db.get(Radio, conv.radio_id)
+        if conv_radio is not None and conv_radio.tech != "meshcore":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Signed messages are a MeshCore feature")
         if body.sign_messages is not None:
             conv.sign_messages = body.sign_messages
         if body.contacts_only is not None and body.contacts_only != conv.contacts_only:
@@ -516,7 +528,7 @@ async def send_message(
     if not body.body.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Message is empty")
     signs = conv.kind == "channel" and conv.sign_messages and body.sign is not False
-    budget = channel_budget(radio.name, signs) if conv.kind == "channel" else DM_MAX_BYTES
+    budget = message_budget(radio, conv, signs)
     size = len(body.body.encode("utf-8"))
     if size > budget:
         raise HTTPException(
@@ -625,9 +637,12 @@ async def search(
     stmt = (
         select(Message, Conversation, Contact)
         .join(Conversation, Conversation.id == Message.conversation_id)
+        .join(Radio, Radio.id == Conversation.radio_id)
         .outerjoin(Contact, Contact.id == Conversation.contact_id)
         .where(Message.body.ilike(f"%{_like_escape(q)}%", escape="\\"), Message.suppressed.is_(False))
     )
+    if not conversation_id:
+        stmt = stmt.where(Radio.tech == await app_settings.get_tech(db))
     if conversation_id:
         stmt = stmt.where(Message.conversation_id == conversation_id)
     if before:
@@ -696,8 +711,20 @@ async def message_info(
     # label (names are self-chosen and not verified, so several or none may match).
     contact: Contact | None = None
     match = None
+    radio = await db.get(Radio, conv.radio_id)
+    mesh = radio is not None and radio.tech == "meshtastic"
     if m.direction == "in":
-        if conv.kind == "dm" and conv.contact_id:
+        if conv.kind == "channel" and mesh and m.sender_key_prefix:
+            # Meshtastic channel messages say who sent them (the node number), not just a name.
+            contact = (
+                await db.execute(
+                    select(Contact).where(
+                        Contact.radio_id == conv.radio_id, Contact.public_key == m.sender_key_prefix
+                    )
+                )
+            ).scalar_one_or_none()
+            match = "key" if contact else None
+        elif conv.kind == "dm" and conv.contact_id:
             contact, match = await db.get(Contact, conv.contact_id), "key"
         elif conv.kind == "channel" and m.sender_label:
             named = (
@@ -733,7 +760,19 @@ async def message_info(
     # Hop hashes are prefixes of repeaters' public keys: name them from the contact list.
     prefixes = {h.lower() for p in paths for h in p.get("hops") or [] if isinstance(h, str)}
     names: dict[str, list[str]] = {x: [] for x in prefixes}
-    if prefixes:
+    if prefixes and mesh:
+        # Meshtastic names the last relay by the low byte of its node number.
+        rows = await db.execute(
+            select(Contact.alias, Contact.name, Contact.kind, Contact.meta).where(
+                Contact.radio_id == conv.radio_id
+            )
+        )
+        for alias, name, _kind, cmeta in sorted(rows, key=lambda r: r[2] != 2):  # relays first
+            num = (cmeta or {}).get("node_num")
+            x = f"{int(num) & 0xFF:02x}" if num is not None else None
+            if x in names:
+                names[x].append(alias or name)
+    elif prefixes:
         rows = await db.execute(
             select(Contact.public_key, Contact.alias, Contact.name, Contact.kind).where(
                 Contact.radio_id == conv.radio_id, or_(*(Contact.public_key.startswith(x) for x in prefixes))

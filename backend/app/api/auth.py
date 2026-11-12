@@ -91,6 +91,8 @@ class SetupStatus(BaseModel):
     release_url: str | None = None
     # The installer set up a radio HAT on this Pi, so the wizard can offer it.
     radio_hat_ready: bool = False
+    # What it runs ("meshcore" | "meshtastic"): the technology MeshHome runs with it.
+    radio_hat_firmware: str | None = None
 
 
 class SetupRequest(BaseModel):
@@ -151,13 +153,17 @@ async def setup_status(db: AsyncSession = Depends(get_db)) -> SetupStatus:
     template = get_settings().release_notes_url
     needs_setup = not await app_settings.setup_complete(db)
     hat_ready = False
+    hat_fw = None
     if needs_setup and radio_hat.native():
-        hat_ready = (await radio_hat.service_state()).get("installed", False)
+        hat_fw = radio_hat.firmware()
+        service = radio_hat.MESHTASTIC_SERVICE if hat_fw == "meshtastic" else radio_hat.SERVICE
+        hat_ready = (await radio_hat.service_state(service)).get("installed", False)
     return SetupStatus(
         needs_setup=needs_setup,
         version=APP_VERSION,
         release_url=template.replace("{version}", APP_VERSION) if template else None,
         radio_hat_ready=hat_ready,
+        radio_hat_firmware=hat_fw if hat_ready else None,
     )
 
 
@@ -180,6 +186,8 @@ async def run_setup(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Enter the radio's IP address or hostname")
     if body.radio.mode == "hat" and not radio_hat.native():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no radio HAT on this install")
+    if body.radio.mode == "hat":
+        body.radio.tech = radio_hat.firmware()  # type: ignore[assignment]  # MeshHome runs what the HAT runs
 
     user = User(username=body.username, password_hash=hash_password(body.password))
     db.add(user)

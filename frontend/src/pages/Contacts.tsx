@@ -33,10 +33,15 @@ import { AddContactDialog, MyContactDialog } from "../components/SignedMessages"
 // The map (Leaflet) loads only when the route picker is opened.
 const MapRoute = lazy(() => import("../components/MapRoute").then((m) => ({ default: m.MapRoute })));
 import { canCopy, cx, formatDateTime, relativeSeconds, sameDay } from "../lib/util";
+import { useTech } from "../lib/queries";
 
 // MeshCore advert types.
 const KIND: Record<number, string> = { 1: "Companion", 2: "Repeater", 3: "Room server", 4: "Sensor" };
-const kindLabel = (k: number) => KIND[k] ?? `Type ${k}`;
+// Meshtastic nodes, by role: relays (routers) and sensors apart from the rest.
+const MT_KIND: Record<number, string> = { 1: "Node", 2: "Relay", 4: "Sensor" };
+// Set by the Contacts page for the technology in use (one at a time).
+let kindNames = KIND;
+const kindLabel = (k: number) => kindNames[k] ?? `Type ${k}`;
 /** A contact's last advert as epoch seconds, 0 if never heard. */
 const heardAt = (c: Contact) => (c.last_advert_at ? new Date(c.last_advert_at).getTime() / 1000 : 0);
 const PAGE_SIZES = [10, 25, 50] as const;
@@ -90,6 +95,8 @@ function useDebounced<T>(value: T, ms = 250): T {
 
 export function Contacts() {
   const navigate = useNavigate();
+  const tech = useTech();
+  kindNames = tech === "meshtastic" ? MT_KIND : KIND;
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<string>("");
   const [show, setShow] = useState<Show>("all");
@@ -152,12 +159,17 @@ export function Contacts() {
         </Link>
         {/* No refresh button: the list follows the radio's adverts (and re-reads every 30 minutes). */}
         <h2 className="flex-1 px-1 py-2 text-base font-semibold">Contacts</h2>
-        <Button onClick={() => setShowMine(true)}>
-          <IdCard className="size-4" aria-hidden /> My contact
-        </Button>
-        <IconButton label="Add contact" onClick={() => setShowAdd(true)}>
-          <Plus className="size-5" />
-        </IconButton>
+        {/* Sharing and adding contacts by QR code are MeshCore's: Meshtastic nodes appear once heard. */}
+        {tech === "meshcore" && (
+          <>
+            <Button onClick={() => setShowMine(true)}>
+              <IdCard className="size-4" aria-hidden /> My contact
+            </Button>
+            <IconButton label="Add contact" onClick={() => setShowAdd(true)}>
+              <Plus className="size-5" />
+            </IconButton>
+          </>
+        )}
       </header>
       {showMine && <MyContactDialog onClose={() => setShowMine(false)} />}
       {showAdd && <AddContactDialog onClose={() => setShowAdd(false)} />}
@@ -192,7 +204,7 @@ export function Contacts() {
             className="min-h-10 rounded-lg border border-line bg-surface px-2 text-sm"
           >
             <option value="">All types</option>
-            {Object.entries(KIND).map(([k, v]) => (
+            {Object.entries(kindNames).map(([k, v]) => (
               <option key={k} value={k}>
                 {v}s
               </option>
@@ -275,7 +287,7 @@ export function Contacts() {
                 tabIndex={0}
                 aria-haspopup="menu"
                 onClick={() => actions.primary(c, navigate)}
-                title={`${c.kind === 1 ? "Open conversation" : c.kind === 2 || c.kind === 3 ? "Remote manage" : "Details"}. Right-click, or press and hold, for more.`}
+                title={`${c.kind === 1 || tech === "meshtastic" ? "Open conversation" : c.kind === 2 || c.kind === 3 ? "Remote manage" : "Details"}. Right-click, or press and hold, for more.`}
                 {...t}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") actions.primary(c, navigate);
@@ -378,6 +390,7 @@ type DialogKind = "details" | "share" | "path" | "remove" | "block";
 
 function useContactActions() {
   const qc = useQueryClient();
+  const tech = useTech();
   const [menu, setMenu] = useState<{ c: Contact; x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<{ kind: DialogKind; c: Contact } | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -422,7 +435,8 @@ function useContactActions() {
 
   /** Clicking a contact: message a person, manage a repeater or room server, otherwise details. */
   const primary = (c: Contact, navigate: (to: string) => void) => {
-    if (c.kind === 1) void message(c, navigate);
+    // Meshtastic: any node can be written to (there's no remote management).
+    if (c.kind === 1 || tech === "meshtastic") void message(c, navigate);
     else if (c.kind === 2 || c.kind === 3) navigate(`/contacts/${c.id}/manage`);
     else open("details", c);
   };
@@ -431,7 +445,7 @@ function useContactActions() {
     const onRadio = c.on_radio;
     return [
       { label: "Details", icon: <Info className="size-4" />, onSelect: () => open("details", c) },
-      ...(c.kind === 1
+      ...(c.kind === 1 || tech === "meshtastic"
         ? [
             {
               label: "Send message",
@@ -440,7 +454,7 @@ function useContactActions() {
             } satisfies MenuItem,
           ]
         : []),
-      ...(c.kind === 2 || c.kind === 3
+      ...(tech === "meshcore" && (c.kind === 2 || c.kind === 3)
         ? [
             {
               label: "Remote manage",
@@ -449,9 +463,14 @@ function useContactActions() {
             } satisfies MenuItem,
           ]
         : []),
-      { label: "Share…", icon: <Share2 className="size-4" />, disabled: !onRadio, onSelect: () => open("share", c) },
-      { label: "Set path…", icon: <Route className="size-4" />, disabled: !onRadio, onSelect: () => open("path", c) },
-      { label: "Reset path", icon: <RouteOff className="size-4" />, disabled: !onRadio, onSelect: () => resetPath.mutate(c) },
+      // Sharing a contact and its route are MeshCore's (Meshtastic routes on its own).
+      ...(tech === "meshcore"
+        ? ([
+            { label: "Share…", icon: <Share2 className="size-4" />, disabled: !onRadio, onSelect: () => open("share", c) },
+            { label: "Set path…", icon: <Route className="size-4" />, disabled: !onRadio, onSelect: () => open("path", c) },
+            { label: "Reset path", icon: <RouteOff className="size-4" />, disabled: !onRadio, onSelect: () => resetPath.mutate(c) },
+          ] satisfies MenuItem[])
+        : []),
       {
         label: c.favorite ? "Remove favorite" : "Favorite",
         icon: c.favorite ? <StarOff className="size-4" /> : <Star className="size-4" />,
@@ -622,10 +641,38 @@ function DetailsDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
       <ErrorText error={d.error} />
       {x && (
         <dl className="divide-y divide-line">
-          <Row k="Advertised name">{x.name || "—"}</Row>
-          <Row k="Public key">
-            <CopyRow value={x.public_key} label="Copy public key" />
-          </Row>
+          <Row k={x.meshtastic ? "Name" : "Advertised name"}>{x.name || "—"}</Row>
+          {x.meshtastic ? (
+            <>
+              <Row k="Node">
+                <CopyRow value={x.node_id ?? ""} label="Copy node id" />
+              </Row>
+              <Row k="Short name">{x.meshtastic.short_name || "—"}</Row>
+              <Row k="Role">{x.meshtastic.role ? x.meshtastic.role.replace(/_/g, " ").toLowerCase() : "—"}</Row>
+              {x.meshtastic.battery_level !== null && (
+                <Row k="Battery">
+                  {x.meshtastic.battery_level > 100 ? "External power" : `${x.meshtastic.battery_level}%`}
+                  {x.meshtastic.voltage ? ` · ${x.meshtastic.voltage.toFixed(2)} V` : ""}
+                </Row>
+              )}
+              <Row k="Signal">
+                {x.meshtastic.hops_away === null
+                  ? "—"
+                  : x.meshtastic.hops_away === 0
+                    ? "Heard directly"
+                    : `${x.meshtastic.hops_away} hop${x.meshtastic.hops_away === 1 ? "" : "s"} away`}
+                {x.meshtastic.snr !== null ? ` · SNR ${x.meshtastic.snr.toFixed(1)} dB` : ""}
+                {x.meshtastic.via_mqtt ? " · via the internet (MQTT)" : ""}
+              </Row>
+              <Row k="Direct messages">
+                {x.meshtastic.encrypted_dms ? "End-to-end encrypted" : "Its key isn't known yet: it's swapped when it sends its node info"}
+              </Row>
+            </>
+          ) : (
+            <Row k="Public key">
+              <CopyRow value={x.public_key} label="Copy public key" />
+            </Row>
+          )}
           <Row k="Last heard">{formatDateTime(x.last_advert_at)}</Row>
           <Row k="Location">
             {x.lat !== null && x.lon !== null ? (
@@ -636,9 +683,9 @@ function DetailsDialog({ c, onClose }: { c: Contact; onClose: () => void }) {
               "Not shared"
             )}
           </Row>
-          <Row k="Route">{pathText(x)}</Row>
+          {!x.meshtastic && <Row k="Route">{pathText(x)}</Row>}
           {x.preferred_route && <PreferredRouteRow c={c} p={x.preferred_route} />}
-          {x.kind === 1 && (
+          {(x.kind === 1 || x.meshtastic) && (
             <Row k="Messages">
               {x.messages_received} received · {x.messages_sent} sent
             </Row>

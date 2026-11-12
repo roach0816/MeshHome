@@ -27,7 +27,7 @@ import {
   Thermometer,
 } from "lucide-react";
 import { playChime, type SoundSetting } from "../lib/sound";
-import { useUpdateInfo } from "../lib/queries";
+import { TECH_NAME, useTech, useUpdateInfo } from "../lib/queries";
 import { BotAppsSection } from "../components/BotApps";
 import { SensorsSection } from "../components/SensorsSection";
 import { TrackingSection } from "../components/TrackingSettings";
@@ -45,6 +45,7 @@ import {
   type MapConfig,
   type RadioConfig,
   type RadioMode,
+  type RadioTech,
   type RoutingConfig,
   type SensorsState,
 } from "../lib/api";
@@ -229,13 +230,15 @@ function SettingsMenu() {
 }
 
 function CategoryContent({ id }: { id: CategoryId }) {
+  const tech = useTech();
   switch (id) {
     case "radio":
       return (
         <>
           <RadioSection />
           <DeviceSection />
-          <RoutingSection />
+          {/* The preferred repeater is a MeshCore feature (Meshtastic routes on its own). */}
+          {tech === "meshcore" && <RoutingSection />}
         </>
       );
     case "notifications":
@@ -311,6 +314,7 @@ function RadioSection() {
   const status = useStatus();
   const cfg = useQuery({ queryKey: ["radio-settings"], queryFn: () => api<RadioConfig>("/api/settings/radio") });
   const hat = useRadioHat();
+  const [tech, setTech] = useState<RadioTech>("meshcore");
   const [mode, setMode] = useState<RadioMode>("none");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("5000");
@@ -318,6 +322,7 @@ function RadioSection() {
 
   useEffect(() => {
     if (!cfg.data) return;
+    setTech(cfg.data.tech);
     setMode(cfg.data.mode);
     setHost(cfg.data.host);
     setPort(String(cfg.data.port));
@@ -328,13 +333,20 @@ function RadioSection() {
     qc.invalidateQueries({ queryKey: ["radio-settings"] });
     qc.invalidateQueries({ queryKey: ["status"] });
   };
+  const chooseTech = (t: RadioTech) => {
+    setTech(t);
+    // The usual API port of each: MeshCore TCP companions 5000, Meshtastic nodes 4403.
+    if (t === "meshtastic" && port === "5000") setPort("4403");
+    if (t === "meshcore" && port === "4403") setPort("5000");
+  };
   const save = useMutation({
     mutationFn: () =>
       api<RadioConfig>("/api/settings/radio", {
         method: "PUT",
-        json: { mode, host: host.trim(), port: Number(port), sim_interval_seconds: Number(interval) },
+        json: { tech, mode, host: host.trim(), port: Number(port), sim_interval_seconds: Number(interval) },
       }),
-    onSuccess: invalidate,
+    // A different technology changes everything shown (contacts, channels, messages): read it all again.
+    onSuccess: () => qc.invalidateQueries(),
   });
   const test = useMutation({
     mutationFn: () =>
@@ -354,15 +366,18 @@ function RadioSection() {
   const summary = radioSummary(status.data);
   const dirty =
     cfg.data &&
-    (mode !== cfg.data.mode ||
+    (tech !== cfg.data.tech ||
+      mode !== cfg.data.mode ||
       host.trim() !== cfg.data.host ||
       Number(port) !== cfg.data.port ||
       Number(interval) !== cfg.data.sim_interval_seconds);
   // The HAT option is offered on a Raspberry Pi 4/5 native install (or when it is already chosen).
   const offerHat = !!hat.data?.board || cfg.data?.mode === "hat";
   // Usable as the MeshCore radio only while it runs ZephCore (not Meshtastic).
-  const hatMeshtastic = hat.data?.firmware === "meshtastic";
-  const hatUsable = hat.data && !hatMeshtastic && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
+  // The HAT runs one technology at a time: usable for the chosen one when it runs that.
+  const hatFw: RadioTech = hat.data?.firmware ?? "meshcore";
+  const hatInstalled = !!hat.data && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
+  const hatUsable = hatInstalled && hatFw === tech;
 
   return (
     <Section
@@ -401,14 +416,60 @@ function RadioSection() {
       </div>
 
       <fieldset className="space-y-2">
+        <legend className="mb-1 text-sm font-medium">Mesh</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {(
+            [
+              ["meshcore", "MeshCore", "MeshCore companion radios, repeaters and room servers"],
+              ["meshtastic", "Meshtastic", "Meshtastic nodes and trackers"],
+            ] as [RadioTech, string, string][]
+          ).map(([t, title, sub]) => (
+            <label
+              key={t}
+              className={cx(
+                "flex cursor-pointer items-start gap-2 rounded-lg border p-3",
+                tech === t ? "border-accent bg-accent-soft/40" : "border-line hover:bg-surface-2",
+              )}
+            >
+              <input type="radio" name="radio-tech" checked={tech === t} onChange={() => chooseTech(t)} className="mt-1 accent-[var(--accent)]" />
+              <span>
+                <span className="block text-sm font-medium">{title}</span>
+                <span className="block text-xs text-muted">{sub}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {cfg.data && tech !== cfg.data.tech && (
+          <p className="text-xs text-muted">
+            MeshHome shows the contacts, channels, messages and trackers of the mesh you choose. The other's are kept for when
+            you switch back.
+          </p>
+        )}
+      </fieldset>
+
+      <fieldset className="space-y-2">
         <legend className="mb-1 text-sm font-medium">Mode</legend>
         <div className={cx("grid gap-2", offerHat ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
           {(
             [
-              ["simulated", "Simulated", "Sample traffic, no hardware"],
-              ["tcp", "MeshCore TCP", "Ethernet companion radio"],
+              [
+                "simulated",
+                "Simulated",
+                tech === "meshtastic" ? "A sample Meshtastic mesh, no hardware" : "Sample traffic, no hardware",
+              ],
+              tech === "meshtastic"
+                ? ["tcp", "Meshtastic node on the network", "Its API on TCP port 4403, e.g. a Wi-Fi node"]
+                : ["tcp", "MeshCore TCP", "Ethernet companion radio"],
               ...(offerHat
-                ? [["hat", "Radio HAT on this Pi", hatMeshtastic ? "Running Meshtastic, for Meshtastic trackers" : "RAK6421 LoRa HAT, run by MeshHome"]]
+                ? [
+                    [
+                      "hat",
+                      "Radio HAT on this Pi",
+                      !hatInstalled || hatFw === tech
+                        ? `RAK6421 LoRa HAT, running ${TECH_NAME[tech]}`
+                        : `Runs ${TECH_NAME[hatFw]} now: switch it below`,
+                    ],
+                  ]
                 : []),
               ["none", "None", "No radio connection"],
             ] as [RadioMode, string, string][]
@@ -470,28 +531,20 @@ function RadioSection() {
 
       {mode === "hat" && (
         <RadioHatPanel
+          tech={tech}
           connected={r?.state === "connected"}
           beforeReboot={cfg.data?.mode !== "hat" ? () => save.mutateAsync() : undefined}
         />
       )}
-      {mode === "hat" && cfg.data?.mode !== "hat" && hat.data && !hatUsable && (
+      {mode === "hat" && hat.data && !hatUsable && (cfg.data?.mode !== "hat" || tech !== cfg.data?.tech) && (
         <p className="text-xs text-muted">
-          {hatMeshtastic ? (
-            <>
-              Nothing to save here: while the HAT runs Meshtastic, MeshHome's MeshCore radio stays on None. Its trackers are
-              set up in{" "}
-              <Link to="/settings/tracking" className="text-accent underline">
-                Settings → Tracking
-              </Link>
-              .
-            </>
-          ) : (
-            "Set up the radio HAT first, then select Save and reconnect."
-          )}
+          {hatInstalled
+            ? `The HAT runs ${TECH_NAME[hatFw]}. Switch it to ${TECH_NAME[tech]} above, then select Save and reconnect.`
+            : "Set up the radio HAT first, then select Save and reconnect."}
         </p>
       )}
 
-      {mode === "simulated" && (
+      {mode === "simulated" && tech === "meshcore" && (
         <Field label="Seconds between simulated messages" htmlFor="sim-interval" hint="On average; 0 turns automatic traffic off.">
           <Input
             id="sim-interval"
@@ -508,7 +561,7 @@ function RadioSection() {
         <Button
           variant="primary"
           onClick={() => save.mutate()}
-          disabled={!dirty || save.isPending || (mode === "hat" && cfg.data?.mode !== "hat" && !hatUsable)}
+          disabled={!dirty || save.isPending || (mode === "hat" && !hatUsable && (cfg.data?.mode !== "hat" || tech !== cfg.data?.tech))}
         >
           {save.isPending ? "Saving…" : "Save and reconnect"}
         </Button>
@@ -542,8 +595,9 @@ function RadioSection() {
 }
 
 function DeviceSection() {
+  const tech = useTech();
   const device = useQuery({ queryKey: ["device"], queryFn: () => api<Device>("/api/device") });
-  const firmware = useRadioFirmware();
+  const firmware = useRadioFirmware(tech === "meshcore");
   const d = device.data;
   if (!d?.radio)
     return (
@@ -558,21 +612,36 @@ function DeviceSection() {
         <Row k="Name">
           {d.radio.name} {d.radio.is_simulated && <Badge tone="warn">Simulated</Badge>}
         </Row>
-        <Row k="Public key">
-          <code className="break-all font-mono text-xs">{d.radio.public_key}</code>
-        </Row>
+        {tech === "meshtastic" ? (
+          <Row k="Node">
+            <code className="font-mono text-xs">{String(d.radio.device_info.node_id ?? "—")}</code>
+            {d.radio.device_info.role ? <span className="text-muted"> · {String(d.radio.device_info.role)}</span> : null}
+          </Row>
+        ) : (
+          <Row k="Public key">
+            <code className="break-all font-mono text-xs">{d.radio.public_key}</code>
+          </Row>
+        )}
         <Row k="Model">{String(d.radio.device_info.model ?? "—")}</Row>
         <Row k="Firmware">
           <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
             {String(d.radio.device_info.firmware ?? "—")}
-            <Link to="/settings/updates" title="Radio firmware">
-              <FirmwareBadge s={firmware.data} />
-            </Link>
+            {tech === "meshcore" && (
+              <Link to="/settings/updates" title="Radio firmware">
+                <FirmwareBadge s={firmware.data} />
+              </Link>
+            )}
           </span>
         </Row>
-        <Row k="RF">
-          {rf.freq_mhz ? `${rf.freq_mhz} MHz · BW ${rf.bw_khz} kHz · SF${rf.sf} · CR${rf.cr} · ${rf.tx_power_dbm} dBm` : "—"}
-        </Row>
+        {tech === "meshtastic" ? (
+          <Row k="LoRa">
+            {rf.region ? `${String(rf.region)} · ${String(rf.preset ?? "")} · ${String(rf.hop_limit ?? "?")} hops` : "—"}
+          </Row>
+        ) : (
+          <Row k="RF">
+            {rf.freq_mhz ? `${rf.freq_mhz} MHz · BW ${rf.bw_khz} kHz · SF${rf.sf} · CR${rf.cr} · ${rf.tx_power_dbm} dBm` : "—"}
+          </Row>
+        )}
         <Row k="Last connected">{formatDateTime(d.radio.last_connected_at)}</Row>
         <Row k="Contacts known">{d.contacts}</Row>
       </dl>

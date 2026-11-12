@@ -7,6 +7,8 @@ import { cx, formatListTime } from "../lib/util";
 import { useConversationActions } from "./ConversationActions";
 import { useContextTrigger } from "./useContextTrigger";
 import { AddChannelDialog } from "./AddChannel";
+import { MeshtasticAddChannelDialog } from "./MeshtasticSettings";
+import { useTech } from "../lib/queries";
 import { IconButton } from "./ui";
 
 type Filter = "all" | "unread" | "favorites";
@@ -38,6 +40,7 @@ function previewText(c: Conversation): string {
 }
 
 export function ConversationList() {
+  const tech = useTech();
   const { data, isPending, error } = useConversations();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -91,7 +94,12 @@ export function ConversationList() {
           <Plus className="size-5" />
         </IconButton>
         </div>
-        {adding && <AddChannelDialog onClose={() => setAdding(false)} />}
+        {adding &&
+          (tech === "meshtastic" ? (
+            <MeshtasticAddChannelDialog onClose={() => setAdding(false)} />
+          ) : (
+            <AddChannelDialog onClose={() => setAdding(false)} />
+          ))}
         <div className="flex gap-1.5" role="tablist" aria-label="Filter conversations">
           {(["all", "unread", "favorites"] as Filter[]).map((f) => (
             <button

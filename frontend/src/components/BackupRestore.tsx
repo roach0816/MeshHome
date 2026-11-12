@@ -6,6 +6,7 @@ import { cx, formatDateTime } from "../lib/util";
 import { Dialog } from "./Dialog";
 import { Badge, Button, Card, ErrorText, Field, IconButton, Input } from "./ui";
 import { InfoTip } from "./InfoTip";
+import { useTech } from "../lib/queries";
 
 const MIN_PASSPHRASE = 10;
 
@@ -52,6 +53,8 @@ const size = (n: number) => (n < 1_048_576 ? `${Math.max(1, Math.round(n / 1024)
 
 /** Settings → Backup & restore. */
 export function BackupSection() {
+  // Restoring a radio's identity and contacts is a MeshCore feature.
+  const tech = useTech();
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["backups"], queryFn: () => api<BackupList>("/api/backups") });
   const [pass, setPass] = useState("");
@@ -162,9 +165,11 @@ export function BackupSection() {
             <Button onClick={() => setRestoring("backup")}>
               <ArchiveRestore className="size-4" aria-hidden /> Restore a backup…
             </Button>
-            <Button onClick={() => setRestoring("radio")}>
-              <Radio className="size-4" aria-hidden /> Restore a radio from a backup…
-            </Button>
+            {tech === "meshcore" && (
+              <Button onClick={() => setRestoring("radio")}>
+                <Radio className="size-4" aria-hidden /> Restore a radio from a backup…
+              </Button>
+            )}
           </div>
         )}
       </div>

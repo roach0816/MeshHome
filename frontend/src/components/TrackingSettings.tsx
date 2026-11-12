@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type TrackingConfig, type Units, type UnitsConfig } from "../lib/api";
 import { useTrackingSettings } from "../pages/Shell";
-import { MeshtasticSection } from "./MeshtasticSettings";
+import { useTech } from "../lib/queries";
 import { ErrorText, Field } from "./ui";
 import { Section, Select } from "./SettingsKit";
 
@@ -15,6 +15,7 @@ function trailLabel(m: number) {
 
 export function TrackingSection() {
   const qc = useQueryClient();
+  const tech = useTech();
   const cfg = useTrackingSettings();
   const save = useMutation({
     mutationFn: (body: TrackingConfig) => api<TrackingConfig>("/api/settings/tracking", { method: "PUT", json: body }),
@@ -40,6 +41,20 @@ export function TrackingSection() {
       title="Tracking"
       description="Follow GPS trackers on a map of their own, with your course drawn on it."
       info={
+        tech === "meshtastic" ? (
+          <>
+            <p>
+              Meshtastic trackers broadcast their position on their own, on a timer or when they've moved, so nothing is asked:
+              MeshHome records every position it hears from a tracked node, with its battery and sensor readings. Positions are
+              kept for 30 days.
+            </p>
+            <p>
+              The trackers need to share a channel with this radio. For exact positions that only your team can follow, give the
+              primary channel a private key with exact positions in Node settings → Channels, and scan its QR code into each
+              tracker.
+            </p>
+          </>
+        ) : (
         <>
           <p>
             MeshCore trackers don't send their position on a timer, so MeshHome asks: on each tracker's interval it sends a
@@ -54,12 +69,8 @@ export function TrackingSection() {
             On each tracker, in the MeshCore app: turn GPS on, set Telemetry → Location to allow this node (flag it in the
             tracker's contacts) or everyone, and make sure this node is in its contacts.
           </p>
-          <p>
-            Meshtastic trackers broadcast their position on their own, so nothing is asked: MeshHome records what it hears through a
-            Meshtastic radio (the radio HAT running Meshtastic, or a node on the network). They need to share a channel with it:
-            set up a private team channel below and scan its QR code into each tracker.
-          </p>
         </>
+        )
       }
     >
       {c ? (
@@ -106,6 +117,7 @@ export function TrackingSection() {
                   onChange={(v) => save.mutate({ ...c, trail_minutes: v })}
                 />
               </Field>
+              {tech === "meshcore" && (
               <label className="flex cursor-pointer items-start gap-3">
                 <input
                   type="checkbox"
@@ -122,7 +134,16 @@ export function TrackingSection() {
                   </span>
                 </span>
               </label>
-              <MeshtasticSection />
+              )}
+              {tech === "meshtastic" && (
+                <p className="text-sm text-muted">
+                  Trackers share a channel with this radio: set it up and share its QR code in{" "}
+                  <Link to="/settings/node" className="text-accent underline">
+                    Node settings → Channels
+                  </Link>
+                  .
+                </p>
+              )}
               <p className="text-sm">
                 <Link to="/tracking" className="text-accent underline">
                   Open the tracking map

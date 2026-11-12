@@ -124,6 +124,9 @@ class Radio(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     public_key: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(64), default="")
+    # "meshcore" | "meshtastic": the app shows the contacts, channels and messages of the radios
+    # running the technology in use (app_settings.effective_tech).
+    tech: Mapped[str] = mapped_column(String(16), default="meshcore", server_default="meshcore")
     is_simulated: Mapped[bool] = mapped_column(Boolean, default=False)
     device_info: Mapped[dict[str, Any]] = mapped_column(default=dict)
     self_info: Mapped[dict[str, Any]] = mapped_column(default=dict)

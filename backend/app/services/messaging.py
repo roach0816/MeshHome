@@ -92,9 +92,10 @@ def _epoch(ts: int | None) -> datetime | None:
 async def upsert_radio(db: AsyncSession, snap: DeviceSnapshot) -> Radio:
     radio = (await db.execute(select(Radio).where(Radio.public_key == snap.public_key))).scalar_one_or_none()
     if radio is None:
-        radio = Radio(public_key=snap.public_key, is_simulated=snap.is_simulated)
+        radio = Radio(public_key=snap.public_key, is_simulated=snap.is_simulated, tech=snap.tech)
         db.add(radio)
     radio.name = snap.name
+    radio.tech = snap.tech
     radio.device_info = {"model": snap.model, "firmware": snap.firmware, **snap.raw_device_info}
     radio.self_info = {
         "radio": snap.radio,
@@ -448,7 +449,7 @@ async def expire_and_timeout(db: AsyncSession, expiry_seconds: int = 60) -> list
     ).scalars()
     for m in timed_out:
         plan = None
-        if not (m.meta or {}).get("bot"):
+        if not (m.meta or {}).get("bot") and not (m.meta or {}).get("one_attempt"):
             attempts = (await db.execute(select(SendAttempt).where(SendAttempt.message_id == m.id))).scalars()
             plan = next_retry(current_round(list(attempts)))
         if plan:

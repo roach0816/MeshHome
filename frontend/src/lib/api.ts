@@ -63,8 +63,12 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
 // ---- types (mirror backend schemas) ---------------------------------------------------
 
 export type RadioMode = "simulated" | "tcp" | "hat" | "none";
+/** The mesh technology MeshHome runs: contacts, channels, messages and tracking follow it. */
+export type RadioTech = "meshcore" | "meshtastic";
 
 export interface RadioConfig {
+  /** With the radio HAT, what the HAT runs. */
+  tech: RadioTech;
   mode: RadioMode;
   host: string;
   port: number;
@@ -184,6 +188,8 @@ export interface Contact {
   blocked: boolean;
   is_simulated: boolean;
   conversation_id: string | null;
+  /** Meshtastic nodes: "!a1b2c3d4" (public_key is then MeshHome's key for the node, not a MeshCore key). */
+  node_id?: string | null;
 }
 
 export interface ContactPage {
@@ -203,6 +209,21 @@ export interface ContactDetail extends Contact {
   messages_sent: number;
   /** Null when no preferred repeater is set (Settings → Radio), or for the repeater itself. */
   preferred_route?: PreferredRoute | null;
+  meshtastic?: MeshtasticContact | null;
+}
+
+export interface MeshtasticContact {
+  short_name: string | null;
+  role: string | null;
+  hw_model: number | null;
+  /** 101: on external power. */
+  battery_level: number | null;
+  voltage: number | null;
+  snr: number | null;
+  hops_away: number | null;
+  via_mqtt: boolean;
+  /** It has a public key: direct messages to it are end-to-end encrypted. */
+  encrypted_dms: boolean;
 }
 
 /** The preferred repeater as it applies to one contact. */
@@ -235,6 +256,7 @@ export interface RadioStatus {
     | "lock_unavailable";
   detail: string;
   mode: RadioMode;
+  tech: RadioTech;
   is_simulated: boolean;
   radio_name: string | null;
   connected_since: number | null;
@@ -251,7 +273,7 @@ export interface Status {
   app: { version: string; radio_enabled_env: boolean };
   database: { ok: boolean; messages: number };
   radio: RadioStatus;
-  radio_config: { mode: RadioMode; host: string; port: number; paused: boolean };
+  radio_config: { tech: RadioTech; mode: RadioMode; host: string; port: number; paused: boolean };
   realtime_clients: number;
   gaps: { started_at: string; ended_at: string | null; reason: string; open: boolean }[];
   server_time: number;
@@ -364,6 +386,8 @@ export interface SetupStatus {
   version: string;
   release_url: string | null;
   radio_hat_ready?: boolean;
+  /** What the HAT runs: MeshHome runs the same. */
+  radio_hat_firmware?: RadioTech | null;
 }
 
 export type HatFirmware = "meshcore" | "meshtastic";
@@ -869,31 +893,44 @@ export interface TrackingData {
   devices: TrackedDevice[];
   tiles: MapConfig;
   offline: OfflineSaved;
-  meshtastic: MeshtasticStatus | null;
+  /** The technology in use: only its trackers are listed. */
+  tech: RadioTech;
 }
 
-export type MeshtasticSource = "off" | "hat" | "network" | "simulated";
-
-export interface MeshtasticConfig {
-  source: MeshtasticSource;
-  host: string;
-  port: number;
+/** The Meshtastic radio's settings (GET /api/node/meshtastic). */
+export interface MtConfig {
+  node: {
+    num: number;
+    node_id: string;
+    long_name: string;
+    short_name: string;
+    firmware: string | null;
+    role: string;
+    lat: number | null;
+    lon: number | null;
+  };
+  lora: { region: string; preset: string; hop_limit: number; tx_power_dbm: number; tx_enabled: boolean };
+  channels: MtChannel[];
+  regions: string[];
+  presets: string[];
+  roles: string[];
 }
 
-export interface MeshtasticStatus {
-  source: MeshtasticSource;
-  state: "off" | "connecting" | "connected" | "error";
-  detail: string | null;
-  node: { num: number; node_id: string; long_name: string | null; short_name: string | null; firmware: string | null } | null;
+export interface MtChannel {
+  index: number;
+  name: string;
+  /** An unnamed primary channel goes by its preset ("LongFast"). */
+  display_name: string;
+  primary: boolean;
+  key: "default" | "private" | "none";
+  /** 32: exact positions; 13: about 1.5 km; 0: none. */
+  position_precision: number;
+}
+
+export interface MtLinkPreview {
+  channels: { name: string; key: "default" | "private" | "none" }[];
   region: string | null;
   preset: string | null;
-  channel: { name: string; private: boolean; precise: boolean } | null;
-}
-
-export interface MeshtasticInfo {
-  status: MeshtasticStatus | null;
-  regions: { value: number; name: string }[];
-  presets: { value: number; name: string }[];
 }
 
 export interface MeshNode {

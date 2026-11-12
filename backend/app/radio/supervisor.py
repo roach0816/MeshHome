@@ -34,9 +34,11 @@ from app.radio.base import (
     hops_from_path,
 )
 from app.radio.meshcore_tcp import MeshCoreTcpRadio
+from app.radio.meshtastic_radio import MeshtasticRadio
 from app.radio.simulated import SimulatedRadio
 from app.realtime import hub
 from app.services import app_settings, bot, messaging, preferred_route, radio_hat, signed_messages, web_push
+from app.services import meshtastic as meshtastic_service
 from app.services.messaging import States
 from app.services.msg_paths import PathTracker
 
@@ -67,6 +69,7 @@ class RadioStatus:
     )
     detail: str = ""
     mode: str = "none"
+    tech: str = "meshcore"  # the mesh technology: "meshcore" | "meshtastic"
     is_simulated: bool = False
     radio_id: str | None = None
     radio_name: str | None = None
@@ -145,6 +148,20 @@ class RadioSupervisor:
     def radio(self) -> Radio | None:
         return self._radio
 
+    async def current_radio(self, s) -> Radio | None:
+        """The radio of the technology in use: the connected one, else the last one connected."""
+        tech = await app_settings.get_tech(s)
+        if self._radio is not None and self._radio.tech == tech:
+            return self._radio
+        return (
+            await s.execute(
+                select(Radio)
+                .where(Radio.tech == tech)
+                .order_by(Radio.last_connected_at.desc().nulls_last())
+                .limit(1)
+            )
+        ).scalar()
+
     def _set(self, state: str, detail: str = "", **kw) -> None:
         changed = state != self.status.state or detail != self.status.detail
         self.status.state = state
@@ -181,20 +198,16 @@ class RadioSupervisor:
             async with db.session_factory()() as s:
                 cfg = await app_settings.get_radio_config(s)
             self.status.mode = cfg.mode
+            self.status.tech = app_settings.effective_tech(cfg)
             if not settings.radio_enabled:
                 self._set("disabled", "RADIO_ENABLED=false for this deployment")
                 await self._wait_reload()
                 continue
             if cfg.mode == "none" or (cfg.mode == "tcp" and not cfg.host):
-                detail = "No radio configured yet — set one up in Settings"
                 if cfg.mode == "none":
                     # No radio, by choice: nothing is missed, so it isn't a collection gap.
                     await self._close_gaps()
-                    async with db.session_factory()() as s:
-                        switched = await app_settings.get_raw(s, app_settings.HAT_SWITCH_KEY) or {}
-                    if switched.get("radio_mode") or radio_hat.firmware() == "meshtastic":
-                        detail = "The radio HAT runs Meshtastic, for Meshtastic trackers"
-                self._set("not_configured", detail)
+                self._set("not_configured", "No radio configured yet — set one up in Settings")
                 await self._wait_reload()
                 continue
             if cfg.paused:
@@ -242,6 +255,8 @@ class RadioSupervisor:
             adapter.on_messages_waiting = self._on_waiting
             adapter.on_contacts_changed = self._on_contacts_changed
             adapter.on_rx_packet = self._on_rx_packet
+            if isinstance(adapter, MeshtasticRadio):
+                adapter.on_send_failed = self._on_send_failed
             disconnected = asyncio.Event()
 
             async def _on_disconnect(reason: str) -> None:
@@ -249,14 +264,13 @@ class RadioSupervisor:
                 disconnected.set()
 
             adapter.on_disconnect = _on_disconnect
-            target = {
-                "simulated": "simulated radio",
-                "hat": f"the radio HAT ({radio_hat.HOST}:{radio_hat.PORT})",
-            }.get(cfg.mode, f"{cfg.host}:{cfg.port}")
+            target = self._target(cfg)
             self._set("connecting", f"Connecting to {target}", is_simulated=cfg.mode == "simulated")
             await asyncio.wait_for(adapter.connect(), COMMAND_TIMEOUT)
             self._adapter = adapter
             await self._initial_sync(adapter)
+            if isinstance(adapter, MeshtasticRadio):
+                await meshtastic_service.source.attach(adapter, self._radio)
             was_connected = True
             self._set(
                 "connected",
@@ -307,6 +321,7 @@ class RadioSupervisor:
             return "was_connected" if was_connected else "failed"
         finally:
             adapter, self._adapter = self._adapter, None
+            meshtastic_service.source.detach()
             if adapter:
                 try:
                     await adapter.disconnect()
@@ -320,7 +335,31 @@ class RadioSupervisor:
                     pass
             self.status.connected_since = None
 
+    @staticmethod
+    def _target(cfg: app_settings.RadioConfig) -> str:
+        if app_settings.effective_tech(cfg) == "meshtastic":
+            return {
+                "simulated": "the simulated Meshtastic node",
+                "hat": f"the radio HAT (meshtasticd, {radio_hat.HOST}:{radio_hat.MESHTASTIC_PORT})",
+            }.get(cfg.mode, f"the Meshtastic node at {cfg.host}:{cfg.port}")
+        return {
+            "simulated": "simulated radio",
+            "hat": f"the radio HAT ({radio_hat.HOST}:{radio_hat.PORT})",
+        }.get(cfg.mode, f"{cfg.host}:{cfg.port}")
+
     def _build_adapter(self, cfg: app_settings.RadioConfig) -> RadioAdapter:
+        if app_settings.effective_tech(cfg) == "meshtastic":
+            from app.meshtastic.client import TcpLink
+
+            if cfg.mode == "simulated":
+                from app.meshtastic.sim import SimLink
+
+                return MeshtasticRadio(SimLink, simulated=True)
+            if cfg.mode == "hat":
+                host, port = radio_hat.HOST, radio_hat.MESHTASTIC_PORT
+            else:
+                host, port = cfg.host, cfg.port
+            return MeshtasticRadio(lambda: TcpLink(host, port))
         if cfg.mode == "simulated":
             return SimulatedRadio(interval_seconds=cfg.sim_interval_seconds)
         if cfg.mode == "hat":
@@ -582,7 +621,7 @@ class RadioSupervisor:
             "contact_remove",
         ):
             await self.refresh_contacts()
-        if op in ("identity", "radio", "channel", "channel_clear"):
+        if op in ("identity", "radio", "channel", "channel_clear", "owner", "role", "channels_import"):
             # Refresh what the archive knows: device name/location/RF and channel generations.
             snap = await self._cmd(adapter.get_device_snapshot)
             channels = await self._cmd(adapter.get_channels)
@@ -926,6 +965,9 @@ class RadioSupervisor:
                 contact = await s.get(Contact, conv.contact_id)
                 if contact:
                     target = ("dm", contact.public_key, None, 0, False, False)
+                    if not getattr(self._adapter, "app_retries", True):
+                        # The radio retries on its own (Meshtastic): one attempt per send.
+                        m.meta = {**(m.meta or {}), "one_attempt": True}
             if target is None:
                 m.state = States.FAILED
                 m.error = "This conversation is no longer available on the radio."
@@ -1079,6 +1121,28 @@ class RadioSupervisor:
         row = (await s.execute(q.limit(1))).first()
         return (row[0] or row[1] if row else None) or key[:8]
 
+    async def _on_send_failed(self, code: str, reason: str, maybe_delivered: bool = True) -> None:
+        """The radio gave up on a direct message (Meshtastic): no acknowledgement after its own
+        retries (no_ack: it may have arrived all the same), or it was refused (failed)."""
+        code = code.lower()
+        state = States.NO_ACK if maybe_delivered else States.FAILED
+        async with db.session_factory()() as s:
+            earlier = select(SendAttempt.message_id).where(SendAttempt.expected_ack == code)
+            row = (
+                await s.execute(
+                    update(Message)
+                    .where(
+                        or_(Message.expected_ack == code, Message.id.in_(earlier)),
+                        Message.state.in_([States.ACCEPTED, States.SENDING, States.NO_ACK]),
+                    )
+                    .values(state=state, ack_deadline=None, error=f"Not delivered: {reason}.")
+                    .returning(Message.id, Message.conversation_id)
+                )
+            ).first()
+            await s.commit()
+        if row:
+            hub.publish("delivery-updated", message_id=str(row[0]), conversation_id=str(row[1]))
+
     async def _on_ack(self, code: str) -> None:
         code = code.lower()
         async with db.session_factory()() as s:
@@ -1092,7 +1156,7 @@ class RadioSupervisor:
                         or_(Message.expected_ack == code, Message.id.in_(earlier)),
                         Message.state.in_([States.ACCEPTED, States.NO_ACK, States.QUEUED, States.SENDING]),
                     )
-                    .values(state=States.ACKNOWLEDGED, ack_deadline=None)
+                    .values(state=States.ACKNOWLEDGED, ack_deadline=None, error=None)
                     .returning(Message.id, Message.conversation_id)
                 )
             ).first()
@@ -1174,6 +1238,8 @@ class RadioSupervisor:
         if isinstance(self._adapter, SimulatedRadio):
             self._adapter.inject(self._adapter.random_message())
             return True
+        if isinstance(self._adapter, MeshtasticRadio) and self._adapter.is_simulated:
+            return self._adapter.simulate_incoming()
         return False
 
 

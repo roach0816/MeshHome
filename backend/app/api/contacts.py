@@ -16,13 +16,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_auth
+from app.api.deps import AuthContext, meshcore_only, require_auth
 from app.db import get_db
 from app.models import AuditEvent, Contact, Conversation, Message, Radio, utcnow
 from app.radio.base import MAX_PATH_BYTES, NotSupported, RadioError, hops_from_path
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import messaging, preferred_route
+from app.services import app_settings, messaging, preferred_route
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -41,6 +41,9 @@ class ContactOut(BaseModel):
     blocked: bool
     is_simulated: bool
     conversation_id: uuid.UUID | None
+    # Meshtastic nodes: the node id ("!a1b2c3d4"). public_key is then MeshHome's key for the node
+    # (its node number), not a MeshCore key.
+    node_id: str | None = None
 
 
 class ContactPage(BaseModel):
@@ -67,6 +70,19 @@ class PreferredRouteOut(BaseModel):
     repeater_available: bool
 
 
+class MeshtasticContact(BaseModel):
+    short_name: str | None
+    role: str | None  # CLIENT, ROUTER, TRACKER, ...
+    hw_model: int | None
+    battery_level: int | None  # 101: on external power
+    voltage: float | None
+    snr: float | None  # of the last packet heard from it
+    hops_away: int | None
+    via_mqtt: bool
+    # It has a public key: direct messages to it are end-to-end encrypted.
+    encrypted_dms: bool
+
+
 class ContactDetail(ContactOut):
     lat: float | None
     lon: float | None
@@ -78,6 +94,7 @@ class ContactDetail(ContactOut):
     messages_sent: int
     # Null when no preferred repeater is set, or for the repeater itself.
     preferred_route: PreferredRouteOut | None = None
+    meshtastic: MeshtasticContact | None = None
 
 
 class PreferredRouteIn(BaseModel):
@@ -126,6 +143,7 @@ def _out(c: Contact, sim: bool, conv_id: uuid.UUID | None) -> ContactOut:
         blocked=c.blocked,
         is_simulated=sim,
         conversation_id=conv_id,
+        node_id=(c.meta or {}).get("node_id"),
     )
 
 
@@ -153,6 +171,7 @@ async def list_contacts(
         select(Contact, Radio.is_simulated, Conversation.id)
         .join(Radio, Radio.id == Contact.radio_id)
         .outerjoin(Conversation, Conversation.contact_id == Contact.id)
+        .where(Radio.tech == await app_settings.get_tech(db))
     )
     if show == "removed":
         base = base.where(Contact.on_radio.is_(False))
@@ -213,7 +232,7 @@ async def lookup_contacts(
             select(Contact, Radio, Conversation.id)
             .join(Radio, Radio.id == Contact.radio_id)
             .outerjoin(Conversation, Conversation.contact_id == Contact.id)
-            .where(Contact.public_key.startswith(prefix))
+            .where(Contact.public_key.startswith(prefix), Radio.tech == await app_settings.get_tech(db))
             .order_by(Contact.kind.in_((2, 3)).desc(), Contact.last_advert_at.desc().nulls_last(), Contact.id)
             .limit(10)
         )
@@ -260,15 +279,11 @@ async def my_contact(
 ) -> MyContact:
     """This radio's own contact, for sharing: others add it to message you and to check your
     signed messages."""
-    radio = supervisor.radio
-    if radio is None:
-        radio = (
-            (await db.execute(select(Radio).order_by(Radio.last_connected_at.desc().nulls_last())))
-            .scalars()
-            .first()
-        )
+    radio = await supervisor.current_radio(db)
     if radio is None or not radio.public_key:
         raise HTTPException(status.HTTP_409_CONFLICT, "No radio has been connected yet")
+    if radio.tech != "meshcore":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Contact sharing is a MeshCore feature")
     return MyContact(
         name=radio.name, public_key=radio.public_key, kind=1, uri=contact_uri(radio.name, radio.public_key)
     )
@@ -303,7 +318,20 @@ async def contact_detail(
         path_hash_size=size,
         messages_received=received,
         messages_sent=sent,
-        preferred_route=await _preferred_route(db, c),
+        preferred_route=await _preferred_route(db, c) if radio.tech == "meshcore" else None,
+        meshtastic=MeshtasticContact(
+            short_name=meta.get("short_name"),
+            role=meta.get("role"),
+            hw_model=meta.get("hw_model"),
+            battery_level=meta.get("battery_level"),
+            voltage=meta.get("voltage"),
+            snr=meta.get("snr"),
+            hops_away=meta.get("hops_away"),
+            via_mqtt=bool(meta.get("via_mqtt")),
+            encrypted_dms=bool(meta.get("pki_key")),
+        )
+        if radio.tech == "meshtastic"
+        else None,
     )
 
 
@@ -390,14 +418,14 @@ async def set_favorite(
     return _out(c, radio.is_simulated, None)
 
 
-@router.post("/{contact_id}/reset-path", status_code=204)
+@router.post("/{contact_id}/reset-path", status_code=204, dependencies=[Depends(meshcore_only)])
 async def reset_path(
     contact_id: uuid.UUID, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
     await radio_contact_op(db, await _contact(db, contact_id), "contact_reset_path")
 
 
-@router.put("/{contact_id}/path", status_code=204)
+@router.put("/{contact_id}/path", status_code=204, dependencies=[Depends(meshcore_only)])
 async def set_path(
     contact_id: uuid.UUID,
     body: PathIn,
@@ -429,7 +457,7 @@ async def set_path(
         await db.commit()
 
 
-@router.put("/{contact_id}/preferred-route", status_code=204)
+@router.put("/{contact_id}/preferred-route", status_code=204, dependencies=[Depends(meshcore_only)])
 async def set_preferred_route(
     contact_id: uuid.UUID,
     body: PreferredRouteIn,
@@ -454,7 +482,7 @@ async def remove_contact(
     await radio_contact_op(db, await _contact(db, contact_id), "contact_remove")
 
 
-@router.post("/{contact_id}/share")
+@router.post("/{contact_id}/share", dependencies=[Depends(meshcore_only)])
 async def share_contact(
     contact_id: uuid.UUID, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
@@ -463,7 +491,7 @@ async def share_contact(
     return {"ok": True}
 
 
-@router.get("/{contact_id}/export")
+@router.get("/{contact_id}/export", dependencies=[Depends(meshcore_only)])
 async def export_contact(
     contact_id: uuid.UUID, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ):
@@ -512,7 +540,7 @@ def _parse_contact_uri(uri: str) -> tuple[str, str, int]:
     return q.get("public_key", ""), q.get("name", ""), kind
 
 
-@router.post("/import", response_model=ContactImportResult)
+@router.post("/import", response_model=ContactImportResult, dependencies=[Depends(meshcore_only)])
 async def import_contact(
     body: ContactImport, ctx: AuthContext = Depends(require_auth), db: AsyncSession = Depends(get_db)
 ) -> ContactImportResult:

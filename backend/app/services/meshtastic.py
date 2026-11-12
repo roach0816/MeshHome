@@ -1,26 +1,22 @@
-"""Meshtastic trackers: positions broadcast by Meshtastic nodes, such as a SenseCAP X1 running
-Meshtastic, recorded for Tracking alongside (or instead of) MeshCore trackers.
+"""Meshtastic nodes and trackers: what MeshHome's Meshtastic radio (radio/meshtastic_radio.py)
+hears besides messages: node info, positions, battery and sensor readings.
 
-MeshHome connects to a Meshtastic node's client API: meshtasticd on this Pi's radio HAT, a node
-on the network, or a simulated one (Settings → Tracking → Meshtastic). Meshtastic trackers send
-their position on their own, on a timer or when they've moved ("smart position"), and their battery
-and sensor readings on other timers. So nothing is polled: every position heard from a tracked node
-is recorded, with the hop count and last relay of the packet. "Ask now" sends a position request,
-which a tracker answers at most every few minutes.
+Every node heard is kept in the node list (MeshNode), for Tracking's "Add a tracker". Meshtastic
+trackers, such as a SenseCAP X1 running Meshtastic, send their position on their own, on a timer or
+when they've moved ("smart position"), and their battery and sensor readings on other timers. So
+nothing is polled: every position heard from a tracked node is recorded, with the hop count and last
+relay of the packet. "Ask now" sends a position request, which a tracker answers at most every few
+minutes.
 
-The trackers and this node must share a channel. With the default public channel, Meshtastic sends
-positions blurred to about 1.5 km and anyone nearby can follow them; set up a private team channel
-from MeshHome (it's shown as a QR code to scan into the trackers).
-
-Runs only while tracking is on and a Meshtastic source is chosen.
+The trackers and the radio must share a channel. On the default public channel Meshtastic sends
+positions blurred to about 1.5 km and anyone nearby can follow them; a private channel with full
+position precision (Settings → Node settings → Channels) is shared with the trackers by QR code.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-import os
 import re
 import time
 from collections import deque
@@ -31,8 +27,9 @@ from sqlalchemy import delete, select
 
 from app import db
 from app.meshtastic import proto as P
-from app.meshtastic.client import Connection, Link, MeshtasticError, Snapshot, TcpLink
+from app.meshtastic.client import MeshtasticError
 from app.models import MeshNode, TrackedDevice, TrackPosition, utcnow
+from app.radio.meshtastic_radio import MeshtasticRadio
 from app.realtime import hub
 from app.services import app_settings
 
@@ -83,149 +80,56 @@ def hop_path(pkt: dict[str, Any]) -> list[str] | None:
 
 class MeshtasticSource:
     def __init__(self) -> None:
-        self._task: asyncio.Task | None = None
-        self._reload = asyncio.Event()
-        self.conn: Connection | None = None
-        self.state = "off"  # off | connecting | connected | error
-        self.detail: str | None = None
-        self.source = "off"
-        self.connected_at: float | None = None
-        self.snapshot: Snapshot | None = None
+        self.adapter: MeshtasticRadio | None = None
+        self.simulated = False
         self._asking: dict[int, float] = {}  # node num -> monotonic deadline
         self._pending_env: dict[int, dict[str, float]] = {}  # node num -> readings
-        self._node_channel: dict[int, int] = {}
         self._timers: set[asyncio.Task] = set()
         self._seen: deque[tuple[int, int]] = deque(maxlen=500)  # (from, packet id) recently heard
-        self._link_factory: Any = None  # tests: a function returning a Link
 
     # ---- lifecycle -------------------------------------------------------------------
 
     def start(self) -> None:
-        if self._task is None:
-            factory = self._link_factory
-            self.__init__()  # type: ignore[misc]  # a fresh start (the tests start the app many times)
-            self._link_factory = factory
-            self._task = asyncio.create_task(self._loop(), name="meshtastic")
+        self.__init__()  # type: ignore[misc]  # a fresh start (the tests start the app many times)
 
     async def stop(self) -> None:
-        tasks = [t for t in [self._task, *self._timers] if t is not None]
-        for t in tasks:
+        for t in self._timers:
             t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        self._task = None
+        await asyncio.gather(*self._timers, return_exceptions=True)
         self._timers.clear()
-        self.conn = None
-        self.state, self.detail = "off", None
+        self.adapter = None
 
-    def reload(self) -> None:
-        """Settings changed: reconnect with the new ones (or stop)."""
-        self._reload.set()
+    async def attach(self, adapter: MeshtasticRadio, radio: Any = None) -> None:
+        """The radio connected (radio/supervisor.py): record its node list, then its packets."""
+        self.adapter = adapter
+        self.simulated = adapter.is_simulated
+        adapter.on_mesh_packet = self._on_packet
+        try:
+            await self._on_snapshot(adapter)
+        except Exception as exc:  # noqa: BLE001 - tracking must never stop the radio connecting
+            log.warning("meshtastic: could not record the node list: %s", exc)
+        self._publish()
+
+    def detach(self) -> None:
+        if self.adapter is not None:
+            self.adapter.on_mesh_packet = None
+            self.adapter = None
+            self._publish()
 
     @property
     def connected(self) -> bool:
-        return self.conn is not None and self.state == "connected"
+        return self.adapter is not None and self.adapter.conn is not None
 
     def _publish(self) -> None:
-        hub.publish("meshtastic-updated")
         hub.publish("tracking-updated")
-
-    def _set(self, state: str, detail: str | None = None) -> None:
-        if (state, detail) != (self.state, self.detail):
-            self.state, self.detail = state, detail
-            self._publish()
-
-    async def _config(self) -> app_settings.MeshtasticConfig | None:
-        async with db.session_factory()() as s:
-            tracking = await app_settings.get_tracking_config(s)
-            cfg = await app_settings.get_meshtastic_config(s)
-        if not tracking.enabled or cfg.source == "off" or (cfg.source == "network" and not cfg.host):
-            return None
-        return cfg
-
-    def _link(self, cfg: app_settings.MeshtasticConfig) -> Link:
-        if self._link_factory is not None:
-            return self._link_factory(cfg)
-        if cfg.source == "simulated":
-            from app.meshtastic.sim import SimLink
-
-            return SimLink()
-        if cfg.source == "hat":
-            return TcpLink(HAT_HOST, HAT_PORT)
-        return TcpLink(cfg.host, cfg.port)
-
-    async def _wait_reload(self, timeout: float | None) -> None:
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._reload.wait(), timeout)
-        self._reload.clear()
-
-    async def _loop(self) -> None:
-        retry = 3.0
-        while True:
-            try:
-                cfg = await self._config()
-            except Exception as exc:  # noqa: BLE001 - e.g. the database restarting
-                log.info("meshtastic: couldn't read settings: %s", exc)
-                await self._wait_reload(10)
-                continue
-            if cfg is None:
-                self.source = "off"
-                self._set("off")
-                await self._wait_reload(None)
-                continue
-            self.source = cfg.source
-            where = {
-                "hat": "the radio HAT (meshtasticd)",
-                "simulated": "the simulated Meshtastic node",
-            }.get(cfg.source, f"{cfg.host}:{cfg.port}")
-            self._set("connecting", f"Connecting to {where}")
-            conn = Connection(self._link(cfg))
-            was_connected = False
-            try:
-                snap = await conn.start()
-                self.conn, self.snapshot, self.connected_at = conn, snap, time.time()
-                was_connected = True
-                retry = 3.0
-                await self._on_snapshot(snap, simulated=cfg.source == "simulated")
-                self._set("connected", None)
-                await self._session(conn)
-            except asyncio.CancelledError:
-                raise
-            except (ConnectionError, MeshtasticError, P.ProtoError, OSError) as exc:
-                msg = str(exc) or type(exc).__name__
-                if was_connected:
-                    self._set("connecting", f"Lost the connection ({msg}); reconnecting")
-                else:
-                    self._set("error", f"Couldn't connect to {where}: {msg}")
-            except Exception as exc:  # noqa: BLE001 - keep the source alive
-                log.warning("meshtastic: %s", exc, exc_info=True)
-                self._set("error", f"Something went wrong: {exc}")
-            finally:
-                self.conn = None
-                await conn.close()
-            if self._reload.is_set():
-                self._reload.clear()
-                continue
-            await self._wait_reload(retry)
-            retry = min(retry * 2, 60.0)
-
-    async def _session(self, conn: Connection) -> None:
-        run = asyncio.create_task(conn.run(self._on_message), name="meshtastic-run")
-        reload = asyncio.create_task(self._reload.wait(), name="meshtastic-reload")
-        try:
-            done, _ = await asyncio.wait({run, reload}, return_when=asyncio.FIRST_COMPLETED)
-            if run in done:
-                run.result()  # raises why it ended
-        finally:
-            for t in (run, reload):
-                t.cancel()
-            await asyncio.gather(run, reload, return_exceptions=True)
 
     # ---- what the node tells us ------------------------------------------------------
 
-    async def _on_snapshot(self, snap: Snapshot, simulated: bool) -> None:
+    async def _on_snapshot(self, adapter: MeshtasticRadio) -> None:
         recorded = False
+        simulated = adapter.is_simulated
         async with db.session_factory()() as s:
-            for num, ni in snap.nodes.items():
+            for num, ni in list(adapter.nodes.items()):
                 node = await self._node(s, num, simulated)
                 self._apply_user(node, ni.get("user") or {})
                 if ni.get("last_heard"):
@@ -235,11 +139,9 @@ class MeshtasticSource:
                 if ni.get("hops_away") is not None:
                     node.hops_away = int(ni["hops_away"])
                 self._apply_metrics(node, ni.get("device_metrics") or {})
-                if ni.get("channel") is not None:
-                    self._node_channel[num] = int(ni["channel"])
                 pos = ni.get("position") or {}
                 fix = P.position_fix(pos)
-                if fix and num != snap.my_num:
+                if fix and num != adapter.my_num:
                     at = datetime.fromtimestamp(
                         int(pos.get("time") or ni.get("last_heard") or time.time()), UTC
                     )
@@ -259,24 +161,10 @@ class MeshtasticSource:
         if recorded:
             hub.publish("tracking-updated")
 
-    async def _on_message(self, msg: dict[str, Any]) -> None:
-        if "packet" in msg:
-            await self._on_packet(msg["packet"])
-        elif "node_info" in msg and self.snapshot:
-            ni = msg["node_info"]
-            if ni.get("num"):
-                self.snapshot.nodes[int(ni["num"])] = ni
-        elif "channel" in msg and self.snapshot:
-            self.snapshot.channels[int(msg["channel"].get("index") or 0)] = msg["channel"]
-            self._publish()
-        elif "config" in msg and self.snapshot and "lora" in msg["config"]:
-            self.snapshot.lora = msg["config"]["lora"]
-            self._publish()
-
     async def _on_packet(self, pkt: dict[str, Any]) -> None:
         dec = pkt.get("decoded")
         frm = int(pkt.get("from") or 0)
-        me = self.snapshot.my_num if self.snapshot else 0
+        me = self.adapter.my_num if self.adapter else 0
         if not dec or not frm or frm == me:
             return
         key = (frm, int(pkt.get("id") or 0))
@@ -296,9 +184,7 @@ class MeshtasticSource:
         except P.ProtoError:
             return
         now = utcnow()
-        simulated = self.source == "simulated"
-        if pkt.get("channel") is not None:
-            self._node_channel[frm] = int(pkt["channel"])
+        simulated = self.simulated
         recorded = False
         async with db.session_factory()() as s:
             node = await self._node(s, frm, simulated)
@@ -467,22 +353,10 @@ class MeshtasticSource:
         deadline = self._asking.get(num)
         return deadline is not None and time.monotonic() < deadline
 
-    def _require(self) -> Connection:
-        if self.conn is None or not self.connected:
-            raise MeshtasticError("MeshHome isn't connected to the Meshtastic node")
-        return self.conn
-
     async def ask_position(self, num: int) -> None:
-        conn = self._require()
-        lora = self.snapshot.lora if self.snapshot else {}
-        await conn.send(
-            num,
-            P.POSITION_APP,
-            b"",
-            channel=self._node_channel.get(num, 0),
-            want_response=True,
-            hop_limit=int(lora.get("hop_limit") or 3),
-        )
+        if self.adapter is None or not self.connected:
+            raise MeshtasticError("MeshHome isn't connected to its Meshtastic radio")
+        await self.adapter.request_position(num)
         self._asking[num] = time.monotonic() + ASK_TIMEOUT
         hub.publish("tracking-updated")
         t = asyncio.create_task(self._ask_timeout(num), name="meshtastic-ask")
@@ -500,83 +374,11 @@ class MeshtasticSource:
                 await s.commit()
         hub.publish("tracking-updated")
 
-    async def setup_team_channel(
-        self, name: str, region: int | None = None, preset: int | None = None
-    ) -> None:
-        """Make a new private channel the node's primary one, with full position precision (and
-        set the LoRa region and preset). The trackers join it by scanning channel_url()."""
-        if not CHANNEL_NAME.match(name):
-            raise ValueError("Use 1 to 11 letters, digits, - or _ for the channel name")
-        conn = self._require()
-        snap = conn.snapshot
-        changes: dict[str, Any] = {}
-        if region is not None and region != (snap.lora.get("region") or 0):
-            changes["region"] = region
-        if preset is not None and (
-            preset != (snap.lora.get("modem_preset") or 0) or not snap.lora.get("use_preset")
-        ):
-            changes["modem_preset"] = preset
-            changes["use_preset"] = True
-        if not snap.lora.get("tx_enabled"):
-            changes["tx_enabled"] = True
-        if (changes.get("region", snap.lora.get("region")) or 0) == 0:
-            raise ValueError("Choose the region you're in: the radio doesn't transmit until it's set")
-        channel = {
-            "index": 0,
-            "role": P.PRIMARY,
-            "settings": {"name": name, "psk": os.urandom(32), "module_settings": {"position_precision": 32}},
-        }
-        await conn.admin({"begin_edit_settings": True})
-        await conn.admin({"set_channel": channel})
-        if changes:
-            lora_raw = P.patch(snap.lora.get("_raw") or b"", P.LORA_CONFIG, changes)
-            await conn.admin({"set_config": {"lora": lora_raw}})
-        await conn.admin({"commit_edit_settings": True})
-        # Read the settings back (a region change also restarts meshtasticd).
-        self.reload()
-
-    def channel_url(self) -> str | None:
-        """The primary channel and LoRa settings as a Meshtastic share link (its QR code)."""
-        snap = self.snapshot
-        if snap is None or 0 not in snap.channels or not snap.lora:
+    def base_position(self) -> dict[str, Any] | None:
+        """The radio's own position (a fixed position, or its GPS), for the map's base marker."""
+        if self.adapter is None:
             return None
-        settings = (snap.channels[0].get("settings") or {}).get("_raw") or b""
-        return P.channel_url([settings], snap.lora.get("_raw") or b"")
-
-    def info(self) -> dict[str, Any]:
-        snap = self.snapshot if self.connected else None
-        ch0 = snap.channels.get(0) if snap else None
-        settings = (ch0 or {}).get("settings") or {}
-        me = snap.nodes.get(snap.my_num, {}).get("user", {}) if snap else {}
-        return {
-            "source": self.source,
-            "state": self.state,
-            "detail": self.detail,
-            "node": None
-            if snap is None
-            else {
-                "num": snap.my_num,
-                "node_id": P.node_id(snap.my_num),
-                "long_name": me.get("long_name"),
-                "short_name": me.get("short_name"),
-                "firmware": snap.metadata.get("firmware_version"),
-            },
-            "region": None if snap is None else P.REGIONS.get(int(snap.lora.get("region") or 0), "UNSET"),
-            "preset": None
-            if snap is None
-            else (
-                P.PRESETS.get(int(snap.lora.get("modem_preset") or 0))
-                if snap.lora.get("use_preset")
-                else "CUSTOM"
-            ),
-            "channel": None
-            if snap is None
-            else {
-                "name": settings.get("name") or "",
-                "private": private_channel(ch0),
-                "precise": int((settings.get("module_settings") or {}).get("position_precision") or 0) >= 32,
-            },
-        }
+        return P.position_fix(self.adapter.nodes.get(self.adapter.my_num, {}).get("position") or {})
 
 
 source = MeshtasticSource()
