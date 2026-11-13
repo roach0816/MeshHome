@@ -120,6 +120,20 @@ class RadioSupervisor:
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="radio-supervisor")
+        self._task.add_done_callback(self._on_run_done)
+
+    def _on_run_done(self, task: asyncio.Task) -> None:
+        """A last resort: _run handles its own errors, but if it ever ends unexpectedly, say so and start
+        it again, rather than leave the radio offline until the app restarts."""
+        if self._stopping or task.cancelled():
+            return
+        exc = task.exception()
+        log.error(
+            "radio supervisor stopped unexpectedly (%s); restarting it",
+            _safe_error(exc) if exc else "no error",
+        )
+        self._set("backoff", "Restarting the radio connection after an unexpected error")
+        asyncio.get_running_loop().call_later(5, lambda: None if self._stopping else self.start())
 
     async def stop(self) -> None:
         self._stopping = True
@@ -189,30 +203,48 @@ class RadioSupervisor:
     async def _run(self) -> None:
         settings = get_settings()
         backoff = 1.0
-        async with db.session_factory()() as s:
-            n = await messaging.mark_interrupted_sends_uncertain(s)
-            await s.commit()
-            if n:
-                log.warning("%d interrupted send(s) marked uncertain", n)
+        startup_checked = False
         while not self._stopping:
-            async with db.session_factory()() as s:
-                cfg = await app_settings.get_radio_config(s)
-            self.status.mode = cfg.mode
-            self.status.tech = app_settings.effective_tech(cfg)
-            if not settings.radio_enabled:
-                self._set("disabled", "RADIO_ENABLED=false for this deployment")
-                await self._wait_reload()
-                continue
-            if cfg.mode == "none" or (cfg.mode == "tcp" and not cfg.host):
-                if cfg.mode == "none":
-                    # No radio, by choice: nothing is missed, so it isn't a collection gap.
-                    await self._close_gaps()
-                self._set("not_configured", "No radio configured yet — set one up in Settings")
-                await self._wait_reload()
-                continue
-            if cfg.paused:
-                self._set("paused", "Maintenance pause: radio connection released")
-                await self._wait_reload()
+            # Everything here uses the database, which can be briefly away (PostgreSQL restarting for
+            # a security update): retry with backoff rather than let the supervisor end, since
+            # nothing would start it again until the app restarts.
+            try:
+                if not startup_checked:
+                    async with db.session_factory()() as s:
+                        n = await messaging.mark_interrupted_sends_uncertain(s)
+                        await s.commit()
+                    if n:
+                        log.warning("%d interrupted send(s) marked uncertain", n)
+                    startup_checked = True
+                async with db.session_factory()() as s:
+                    cfg = await app_settings.get_radio_config(s)
+                self.status.mode = cfg.mode
+                self.status.tech = app_settings.effective_tech(cfg)
+                if not settings.radio_enabled:
+                    self._set("disabled", "RADIO_ENABLED=false for this deployment")
+                    await self._wait_reload()
+                    continue
+                if cfg.mode == "none" or (cfg.mode == "tcp" and not cfg.host):
+                    if cfg.mode == "none":
+                        # No radio, by choice: nothing is missed, so it isn't a collection gap.
+                        await self._close_gaps()
+                    self._set("not_configured", "No radio configured yet — set one up in Settings")
+                    await self._wait_reload()
+                    continue
+                if cfg.paused:
+                    self._set("paused", "Maintenance pause: radio connection released")
+                    await self._wait_reload()
+                    continue
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - supervisor must survive anything
+                self.status.last_error = f"Database unavailable: {_safe_error(exc)}"
+                log.warning("radio supervisor: %s", self.status.last_error)
+                delay = min(BACKOFF_MAX, backoff) * random.uniform(0.7, 1.3)
+                backoff = min(BACKOFF_MAX, backoff * 2)
+                self._set("backoff", self.status.last_error, next_retry_at=time.time() + delay)
+                await self._wait_reload(delay)
+                self.status.next_retry_at = None
                 continue
 
             outcome = await self._session(cfg)
