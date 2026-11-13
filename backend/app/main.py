@@ -18,6 +18,7 @@ from app.api import (
     bot_apps,
     contacts,
     firmware,
+    health,
     inbox,
     meshtastic,
     meta,
@@ -38,8 +39,9 @@ from app.api.deps import bearer_token, load_api_key, load_session, session_cooki
 from app.config import APP_VERSION, get_settings
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import app_settings, courses, diagnostics, updates, web_push
+from app.services import app_log, app_settings, courses, diagnostics, updates, web_push
 from app.services import bot_apps as bot_apps_service
+from app.services import health as health_service
 from app.services import meshtastic as meshtastic_service
 from app.services import offline_map as offline_map_service
 from app.services import sensors as sensors_service
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(
         level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    app_log.install()  # Settings → Health & logs; started below, but captures from here on
     db.init_engine()
     async with db.session_factory()() as s:
         needs_setup = not await app_settings.setup_complete(s)
@@ -71,7 +74,10 @@ async def lifespan(app: FastAPI):
             banner,
             token,
             banner,
+            extra={"private": True},  # never kept in the log history
         )
+    app_log.start()
+    app_log.event(log, f"MeshHome {APP_VERSION} started", component="app", kind="app")
     await courses.sync_sim_route()
     tracking_service.manager.start()  # before the radio, so it hears the first contact sync
     supervisor.start()
@@ -80,9 +86,16 @@ async def lifespan(app: FastAPI):
     sensors_service.manager.start()
     update_task = asyncio.create_task(_update_check_loop(), name="update-check")
     diag_task = asyncio.create_task(diagnostics.loop(), name="diagnostics")
+    health_service.watch("radio", "Radio connection", "radio", lambda: supervisor._task, log_errors=False)
+    health_service.watch("tracking", "Tracking", "tracking", lambda: tracking_service.manager._task)
+    health_service.watch("sensors", "Sensors", "sensors", lambda: sensors_service.manager._task)
+    health_service.watch("push", "Notifications", "notifications", lambda: web_push._task)
+    health_service.watch("updates", "Update checks", "updates", lambda: update_task)
+    health_service.watch("log", "Log history", "app", app_log.task)
     try:
         yield
     finally:
+        app_log.event(log, "MeshHome stopping", component="app", kind="app")
         update_task.cancel()
         diag_task.cancel()
         await sensors_service.manager.stop()
@@ -92,6 +105,7 @@ async def lifespan(app: FastAPI):
         await supervisor.stop()
         await web_push.stop()
         hub.close_all()
+        await app_log.stop()
         await db.dispose_engine()
 
 
@@ -161,6 +175,7 @@ app.include_router(tracking.router)
 app.include_router(meshtastic.router)
 app.include_router(radio_config.router)
 app.include_router(system.router)
+app.include_router(health.router)
 app.include_router(api_keys.router)
 app.include_router(remote.router)
 app.include_router(sensors.router)

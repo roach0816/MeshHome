@@ -37,7 +37,16 @@ from app.radio.meshcore_tcp import MeshCoreTcpRadio
 from app.radio.meshtastic_radio import MeshtasticRadio
 from app.radio.simulated import SimulatedRadio
 from app.realtime import hub
-from app.services import app_settings, bot, messaging, preferred_route, radio_hat, signed_messages, web_push
+from app.services import (
+    app_log,
+    app_settings,
+    bot,
+    messaging,
+    preferred_route,
+    radio_hat,
+    signed_messages,
+    web_push,
+)
 from app.services import meshtastic as meshtastic_service
 from app.services.messaging import States
 from app.services.msg_paths import PathTracker
@@ -78,6 +87,7 @@ class RadioStatus:
     last_error: str | None = None
     next_retry_at: float | None = None
     reconnects: int = 0
+    last_heard_at: float | None = None  # when the radio last heard another node (MeshCore)
     received: int = 0
     sent: int = 0
     storage_warning: str | None = None
@@ -183,7 +193,16 @@ class RadioSupervisor:
         for k, v in kw.items():
             setattr(self.status, k, v)
         if changed:
-            log.info("radio state: %s %s", state, f"({detail})" if detail else "")
+            # Kept in the log history (Settings → Health & logs) as the radio's connection history,
+            # except "connecting", which comes and goes with every attempt.
+            level = logging.WARNING if state in ("backoff", "lock_unavailable") else logging.INFO
+            text = (
+                f"Radio offline, retrying: {detail}" if state == "backoff" else (detail or f"Radio {state}")
+            )
+            if state in ("connecting", "starting"):
+                log.log(level, "%s", text, extra={"component": "radio"})
+            else:
+                app_log.event(log, text, component="radio", kind="radio", level=level)
             hub.publish("radio-status-changed", state=state)
 
     def snapshot(self) -> dict:
@@ -348,7 +367,8 @@ class RadioSupervisor:
             raise
         except Exception as exc:  # noqa: BLE001 - supervisor must survive anything
             self.status.last_error = _safe_error(exc)
-            log.warning("radio session failed: %s", self.status.last_error)
+            # INFO: the "Radio offline" event that follows carries the same error into the history.
+            log.info("radio session failed: %s", self.status.last_error)
             await self._open_gap(self.status.last_error)
             return "was_connected" if was_connected else "failed"
         finally:
@@ -776,6 +796,7 @@ class RadioSupervisor:
         self._channel_keys = {c.slot: c.secret for c in channels if c.secret and any(c.secret)}
 
     async def _on_rx_packet(self, raw: bytes, snr: float | None, rssi: float | None) -> None:
+        self.status.last_heard_at = time.time()
         packet = packets.parse(raw)
         if packet is None:
             return
@@ -899,6 +920,7 @@ class RadioSupervisor:
                     hub.publish("radio-status-changed", state=self.status.state)
                 if created:
                     self.status.received += 1
+                    self.status.last_heard_at = time.time()
                     hub.publish(
                         "message-created",
                         conversation_id=str(m.conversation_id),

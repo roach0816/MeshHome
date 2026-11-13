@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore, type ComponentType, type Rea
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, NavLink, useParams } from "react-router";
 import {
+  Activity,
   Archive,
   Bell,
   BellRing,
@@ -27,12 +28,13 @@ import {
   Thermometer,
 } from "lucide-react";
 import { playChime, type SoundSetting } from "../lib/sound";
-import { TECH_NAME, useTech, useUpdateInfo } from "../lib/queries";
+import { TECH_NAME, useHealth, useTech, useUpdateInfo } from "../lib/queries";
 import { BotAppsSection } from "../components/BotApps";
 import { SensorsSection } from "../components/SensorsSection";
 import { TrackingSection } from "../components/TrackingSettings";
 import { OfflineMapSection } from "../components/OfflineMap";
 import { NetworkSection } from "../components/NetworkSettings";
+import { HealthPage } from "../components/Health";
 import { ApiKeysSection } from "../components/ApiKeys";
 import { BackupSection } from "../components/BackupRestore";
 import { RadioHatPanel, SwitchHatDialog, useRadioHat } from "../components/RadioHat";
@@ -87,6 +89,7 @@ type CategoryId =
   | "bot"
   | "network"
   | "software"
+  | "health"
   | "api"
   | "data";
 
@@ -109,6 +112,7 @@ const CATEGORIES: Category[] = [
   { id: "bot", label: "Bot", sub: "Commands and apps", icon: Bot },
   { id: "network", label: "Network & HTTPS", sub: "Ports and certificate", icon: Globe },
   { id: "software", label: "Software", sub: "Updates and firmware", icon: Download, to: "/settings/updates" },
+  { id: "health", label: "Health & logs", sub: "What's working, and the log", icon: Activity },
   { id: "api", label: "API keys", sub: "For scripts and services", icon: KeyRound },
   { id: "data", label: "Backup & data", sub: "Backups and export", icon: Archive },
 ];
@@ -137,9 +141,25 @@ function categoryPath(c: Category) {
 }
 
 function CategoryBadge({ id }: { id: CategoryId }) {
-  const u = useUpdateInfo();
-  if (id === "software" && u.data?.update_available) return <Badge tone="accent">Update</Badge>;
+  if (id === "software") return <UpdateBadge />;
+  if (id === "health") return <HealthBadge />;
   return null;
+}
+
+function UpdateBadge() {
+  const u = useUpdateInfo();
+  return u.data?.update_available ? <Badge tone="accent">Update</Badge> : null;
+}
+
+/** Something needs attention: say so on the way in (a dot, so the label still fits). */
+function HealthBadge() {
+  const h = useHealth();
+  const o = h.data?.overall;
+  if (o !== "bad" && o !== "warn") return null;
+  const label = o === "bad" ? "Something isn't working" : "Something needs attention";
+  return (
+    <span role="img" aria-label={label} title={label} className={cx("inline-block size-2.5 shrink-0 rounded-full", o === "bad" ? "bg-danger" : "bg-warn")} />
+  );
 }
 
 /** Settings pages: the category menu beside the page on wide screens; the page alone on phones. */
@@ -277,6 +297,8 @@ function CategoryContent({ id }: { id: CategoryId }) {
       );
     case "network":
       return <NetworkSection />;
+    case "health":
+      return <HealthPage />;
     case "api":
       return <ApiKeysSection />;
     case "data":
@@ -397,8 +419,13 @@ function RadioSection() {
       }
     >
       <div className="rounded-lg border border-line bg-surface-2/50 p-3">
-        <p className="flex items-center gap-2 text-sm font-medium">
+        <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <Badge tone={summary.tone === "muted" ? "muted" : summary.tone}>{summary.label}</Badge>
+          {(summary.tone === "danger" || (summary.tone === "warn" && r?.state !== "connected")) && (
+            <Link to="/settings/health" className="text-sm font-medium text-accent underline">
+              What's wrong?
+            </Link>
+          )}
         </p>
         {r && (
           <dl className="mt-2 divide-y divide-line">

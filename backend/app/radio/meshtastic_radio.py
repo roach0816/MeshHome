@@ -224,6 +224,7 @@ class MeshtasticRadio(RadioAdapter):
             return
         if frm == self.my_num:
             return
+        self.last_heard_at = time.time()
         pid = int(pkt.get("id") or 0)
         if pid:
             if (frm, pid) in self._seen:

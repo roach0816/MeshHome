@@ -4257,6 +4257,187 @@
         }
       }
     },
+    "/api/system/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Get Health",
+        "description": "What's working and what isn't. Also readable with an API key, for monitoring.",
+        "operationId": "get_health_api_system_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/health/report": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Get Health Report",
+        "description": "The health report, recent problems and the radio's connection history as plain text.",
+        "operationId": "get_health_report_api_system_health_report_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/logs": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Get Logs",
+        "description": "history: warnings, errors and events, kept 30 days (paged with offset). recent: every line\nsince MeshHome started, from INFO up (paged with `before`, a line's seq).",
+        "operationId": "get_logs_api_system_logs_get",
+        "parameters": [
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "history",
+                "recent"
+              ],
+              "type": "string",
+              "default": "history",
+              "title": "View"
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "problems"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Level"
+            }
+          },
+          {
+            "name": "component",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 24
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Component"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/api-keys": {
       "get": {
         "tags": [
@@ -7673,6 +7854,189 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HealthFact": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "HealthFact"
+      },
+      "HealthItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "info",
+              "warn",
+              "bad",
+              "off"
+            ],
+            "title": "Status"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "fix": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fix",
+            "default": []
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/HealthFact"
+            },
+            "type": "array",
+            "title": "Facts",
+            "default": []
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          },
+          "logs": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logs"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "summary"
+        ],
+        "title": "HealthItem"
+      },
+      "HealthReport": {
+        "properties": {
+          "checked_at": {
+            "type": "number",
+            "title": "Checked At"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "started_at": {
+            "type": "number",
+            "title": "Started At"
+          },
+          "install_kind": {
+            "type": "string",
+            "title": "Install Kind"
+          },
+          "overall": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "bad"
+            ],
+            "title": "Overall"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HealthItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemCount"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checked_at",
+          "version",
+          "started_at",
+          "install_kind",
+          "overall",
+          "summary",
+          "items",
+          "problems"
+        ],
+        "title": "HealthReport"
+      },
       "HistoryOut": {
         "properties": {
           "hours": {
@@ -8063,6 +8427,167 @@
           "preset"
         ],
         "title": "LinkPreview"
+      },
+      "LogLine": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "first_at": {
+            "type": "number",
+            "title": "First At"
+          },
+          "last_at": {
+            "type": "number",
+            "title": "Last At"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "INFO",
+              "WARNING",
+              "ERROR",
+              "CRITICAL"
+            ],
+            "title": "Level"
+          },
+          "component": {
+            "type": "string",
+            "title": "Component"
+          },
+          "event": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "saved": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "first_at",
+          "last_at",
+          "count",
+          "level",
+          "component",
+          "message"
+        ],
+        "title": "LogLine"
+      },
+      "LogPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "more": {
+            "type": "boolean",
+            "title": "More"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "components": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Components"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "kept": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "more",
+          "components"
+        ],
+        "title": "LogPage"
       },
       "LoginIn": {
         "properties": {
@@ -9523,6 +10048,44 @@
           "created_at"
         ],
         "title": "Preview"
+      },
+      "ProblemCount": {
+        "properties": {
+          "component": {
+            "type": "string",
+            "title": "Component"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "last_at": {
+            "type": "number",
+            "title": "Last At"
+          },
+          "latest": {
+            "type": "string",
+            "title": "Latest"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "component",
+          "label",
+          "count",
+          "last_at",
+          "latest",
+          "level"
+        ],
+        "title": "ProblemCount"
       },
       "PushInfo": {
         "properties": {

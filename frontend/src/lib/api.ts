@@ -980,3 +980,59 @@ export interface OfflineMapState {
   saved: OfflineSaved;
   job: OfflineJob;
 }
+
+// ---- Settings → Health & logs ------------------------------------------------------------------
+
+export type HealthStatus = "ok" | "info" | "warn" | "bad" | "off";
+
+export interface HealthItem {
+  id: string;
+  title: string;
+  status: HealthStatus;
+  summary: string;
+  detail: string | null;
+  fix: string[];
+  facts: { label: string; value: string }[];
+  link: string | null;
+  link_label: string | null;
+  /** Its component in the log. */
+  logs: string | null;
+  since: number | null;
+}
+
+export interface HealthReport {
+  checked_at: number;
+  version: string;
+  started_at: number;
+  install_kind: string;
+  overall: "ok" | "warn" | "bad";
+  summary: string;
+  items: HealthItem[];
+  /** Warnings and errors in the last 24 hours, per component. */
+  problems: { component: string; label: string; count: number; last_at: number; latest: string; level: string }[];
+}
+
+export type LogLevel = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+
+export interface LogLine {
+  id: number | null;
+  seq: number | null;
+  first_at: number;
+  last_at: number;
+  count: number;
+  level: LogLevel;
+  component: string;
+  event: string | null;
+  message: string;
+  detail: string | null;
+  saved: boolean | null;
+}
+
+export interface LogPage {
+  items: LogLine[];
+  more: boolean;
+  error: string | null;
+  components: Record<string, string>;
+  since: number | null;
+  kept: number | null;
+}

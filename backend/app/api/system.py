@@ -1,6 +1,7 @@
 """Software version, update availability and (native installs) in-place upgrades."""
 
 import json
+import logging
 import re
 import time
 from typing import Literal
@@ -14,8 +15,9 @@ from app.config import APP_VERSION, get_settings
 from app.db import get_db
 from app.models import AuditEvent
 from app.security import RateLimiter
-from app.services import radio_hat, system_config, updates
+from app.services import app_log, radio_hat, system_config, updates
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 _manual_checks = RateLimiter(limit=3, window_seconds=60)
@@ -80,6 +82,7 @@ async def request_update(
         ) from exc
     db.add(AuditEvent(kind="system.update_requested", detail={"from": APP_VERSION, "to": body.version}))
     await db.commit()
+    app_log.event(log, f"Update to MeshHome {body.version} requested", component="updates", kind="settings")
     return {"queued": True, "version": body.version}
 
 
@@ -347,6 +350,13 @@ async def radio_hat_action(
         await _switch_radio_modes(db, body.firmware, use=body.use)
     db.add(AuditEvent(kind=f"radio_hat.{body.action}", detail=detail))
     await db.commit()
+    what = {
+        "install": f"set up with {'Meshtastic (meshtasticd)' if body.firmware == 'meshtastic' else 'MeshCore (ZephCore)'}",
+        "remove": "removal",
+        "restart": "restart of its software",
+        "reboot": "restart of the Pi",
+    }[body.action]
+    app_log.event(log, f"Radio HAT: {what} requested", component="radio_hat", kind="settings")
     return {"accepted": True}
 
 

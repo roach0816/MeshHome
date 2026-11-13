@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type RadioTech, type SetupStatus, type Status, type UpdateInfo } from "./api";
+import { api, type HealthReport, type RadioTech, type SetupStatus, type Status, type UpdateInfo } from "./api";
 
 export function useSetupStatus() {
   return useQuery({
@@ -31,3 +31,13 @@ export function useTech(): RadioTech {
 
 /** Shown in place of a MeshCore feature while Meshtastic is in use (and the other way round). */
 export const TECH_NAME: Record<RadioTech, string> = { meshcore: "MeshCore", meshtastic: "Meshtastic" };
+
+/** Settings → Health & logs: what's working and what isn't. */
+export function useHealth() {
+  return useQuery({
+    queryKey: ["health"],
+    queryFn: () => api<HealthReport>("/api/system/health"),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+}

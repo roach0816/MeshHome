@@ -380,6 +380,8 @@ they don't include these readings.
 - **Network & HTTPS** (native installs): see [HTTPS](install-native.md#https).
 - **Software updates:** release notes and one-click updates on native installs, and the radio
   firmware check.
+- **Health & logs:** what's working and what isn't, and MeshHome's own log; see
+  [below](#health-and-logs).
 - **Maintenance pause/resume**, device information, collection gaps, JSON export, and deleting
   simulated data.
 - Light and dark themes. Layouts for phone, tablet, and desktop. The browser tab reads
@@ -417,6 +419,53 @@ The installed app also shows the **unread count on its icon** (where the system 
 badges), **reconnects at once** when you return to it, and on Android appears in the **share
 sheet**: share text or a link to MeshHome, choose a conversation, and the text is waiting in its
 message box.
+
+### Health and logs
+
+**Settings → Health & logs** shows what's working and what isn't, from MeshHome's point of view.
+The menu shows a dot beside it when something needs attention, and Settings → Radio links to it
+while the radio is offline.
+
+**Health** checks each part of MeshHome every 30 seconds:
+
+| Check | What it looks at |
+| --- | --- |
+| Radio connection | Connected, connecting or offline, and why |
+| Radio HAT | Pi installs: whether ZephCore or meshtasticd is running, needs a restart of the Pi, or keeps restarting |
+| Hearing the mesh | When the radio last heard another node |
+| Sending messages | Messages waiting or stuck, and how many direct messages were confirmed delivered |
+| Message collection | Interruptions in the last 24 hours, and whether one is open now |
+| Trackers | Trackers that aren't answering or haven't sent a position |
+| Database | Whether PostgreSQL answers and how fast |
+| Background services | MeshHome's own background work (radio, tracking, notifications, ...) is running |
+| Notifications | Devices whose push service refused the last notification |
+| HTTPS certificate | When it expires |
+| Software | Updates, and failed update checks |
+| This computer | Linux: disk, memory, temperature, power supply (Raspberry Pi under-voltage) and clock |
+
+Something that isn't working opens by itself and shows three things:
+- **What it means**, in words: for example, "Nothing is accepting connections at 192.168.1.40:4403"
+  rather than "Errno 111".
+- **What to do**, step by step.
+- **The facts behind it**, with links to the setting to change and to its lines in the log.
+
+**Copy report** (or **Download report** on a page without HTTPS) copies the whole check, recent
+problems and the radio's connection history as text, to paste when asking for help. The report
+contains no passwords or keys, but it does include network addresses and names.
+
+**Log** has two views:
+- **History** keeps warnings, errors and events for 30 days. Events are the radio connecting and
+  going offline, MeshHome starting and stopping, and radio settings, radio HAT changes and updates
+  being requested. A line that repeats, such as the radio retrying all night, is one entry with its
+  count and the time span.
+- **Since start** shows every line since MeshHome last started (up to 2,000), routine ones included.
+
+Both views filter by part of MeshHome (Radio, Radio HAT, Tracking, Database, ...), by problems
+only, and by text. Errors show their details. While the database is unavailable, lines wait in
+memory and are saved when it's back, so an outage shows up in the history too.
+
+`sudo meshhome status` and `sudo meshhome logs` still give the same information in a terminal on a
+Pi.
 
 ## Reliability
 

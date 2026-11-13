@@ -112,6 +112,10 @@ The report contains no passwords, keys, or tokens, so you can paste it when aski
 include network addresses). It exits with status 1 when it finds a problem, so scripts and monitoring
 can use it too.
 
+In the web interface, **Settings → Health & logs** shows MeshHome's own checks, its log for the last 30
+days, and **Copy report** ([features](features.md#health-and-logs)). `sudo meshhome logs` shows the app's
+log in a terminal, and `sudo meshhome radio-hat logs` the radio HAT software's.
+
 ## Radio HAT on the Pi (RAK6421)
 
 Instead of a separate radio on your network, a Raspberry Pi 4 or 5 can carry the radio itself: a

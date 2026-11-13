@@ -151,6 +151,8 @@ class RadioAdapter(ABC):
         self.on_contacts_changed: WaitingCallback | None = None
         # Every packet the radio hears (raw bytes, SNR dB, RSSI dBm), for message paths.
         self.on_rx_packet: Callable[[bytes, float | None, float | None], Awaitable[None]] | None = None
+        # When the radio last heard anything from another node (epoch seconds), for Settings → Health.
+        self.last_heard_at: float | None = None
 
     @abstractmethod
     async def connect(self) -> None:

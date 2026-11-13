@@ -1,6 +1,7 @@
 """Status, device information, radio connection settings and maintenance controls."""
 
 import asyncio
+import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,8 +16,9 @@ from app.models import AuditEvent, Channel, CollectionGap, Contact, Message, Rad
 from app.radio.base import NotSupported, RadioError
 from app.radio.supervisor import supervisor
 from app.realtime import hub
-from app.services import app_settings, radio_hat
+from app.services import app_log, app_settings, radio_hat
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["radio"])
 
 
@@ -131,6 +133,11 @@ async def put_radio_settings(
     await app_settings.put_radio_config(db, cfg)
     db.add(AuditEvent(kind="radio.settings_changed", detail={"mode": cfg.mode, "tech": cfg.tech}))
     await db.commit()
+    mesh = "Meshtastic" if cfg.tech == "meshtastic" else "MeshCore"
+    how = {"hat": "the radio HAT", "simulated": "a simulated radio", "none": "no radio"}.get(
+        cfg.mode, f"{cfg.host}:{cfg.port}"
+    )
+    app_log.event(log, f"Radio settings saved: {mesh}, {how}", component="radio", kind="settings")
     supervisor.reload()
     return cfg
 

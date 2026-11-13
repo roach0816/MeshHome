@@ -294,6 +294,26 @@ class AuditEvent(Base):
     detail: Mapped[dict[str, Any]] = mapped_column(default=dict)
 
 
+class LogEntry(Base):
+    """MeshHome's log history (services/app_log.py), for Settings → Health & logs: warnings and
+    errors, and events (the radio connecting and going offline, the app starting, settings changed).
+    The same line repeated is one entry, with its count and the first and last time."""
+
+    __tablename__ = "log_entries"
+    __table_args__ = (Index("ix_log_entries_last_at", "last_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    first_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_at: Mapped[datetime] = mapped_column(default=utcnow)
+    count: Mapped[int] = mapped_column(Integer, default=1)
+    level: Mapped[str] = mapped_column(String(8))  # INFO | WARNING | ERROR | CRITICAL
+    component: Mapped[str] = mapped_column(String(24))  # radio, database, tracking, ... (app_log.COMPONENTS)
+    event: Mapped[str | None] = mapped_column(String(24))  # set for events (kept even at INFO)
+    logger: Mapped[str] = mapped_column(String(80))
+    message: Mapped[str] = mapped_column(Text)
+    detail: Mapped[str | None] = mapped_column(Text)  # an error's traceback
+
+
 class SensorReading(Base):
     """A reading from the sensors attached to this Pi (services/sensors.py), every few minutes, for
     history. Any value can be missing (a sensor not fitted, or no GPS fix)."""

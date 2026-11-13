@@ -116,6 +116,10 @@ export function useRealtime(enabled: boolean): SocketState {
           case "radio-status-changed":
             qc.invalidateQueries({ queryKey: ["status"] });
             qc.invalidateQueries({ queryKey: ["device"] });
+            qc.invalidateQueries({ queryKey: ["health"] });
+            break;
+          case "log-updated":
+            qc.invalidateQueries({ queryKey: ["logs"] });
             break;
         }
       };

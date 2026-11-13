@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.2.2**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.3.0**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -718,6 +718,7 @@ the map settings.
 | `GET /api/radio/config` | The connected node's configuration: identity, LoRa parameters, channels (names and key *types*, never keys), behaviour and telemetry. `409` if the radio is offline. |
 | `GET /api/radio/channels/hashtag-key?name=%23hikers` | The key of a public `#hashtag` channel, derived from its name: `{"name", "hex", "base64"}`. |
 | `GET /api/system/update` | Installed version and whether an update is available. |
+| `GET /api/system/health` | What's working, for monitoring: `overall` (`ok`, `warn` or `bad`), `summary`, and `items`, each with `id` (`radio`, `radio_hat`, `mesh`, `sending`, `collection`, `trackers`, `database`, `services`, `notifications`, `https`, `updates`, `system`; only those that apply), `title`, `status` (`ok`, `info`, `warn`, `bad` or `off`), `summary`, `detail` (what it means), `fix` (steps), `facts` (`label`/`value`), `link` (the web interface's page) and `logs` (its component in the log). `problems` counts warnings and errors in the last 24 hours per component. |
 | `GET /api/radio/firmware` | The radio's MeshCore firmware compared with MeshCore's latest companion release: `{"available", "model", "current_version", "latest": {"version", "published_at", "notes_url"}, "up_to_date"}`. `up_to_date` is `null` when unknown; `available: false` (with a `reason`) for the simulated radio or the radio HAT. |
 | `GET /api/system/radio-hat` | Raspberry Pi installs: the optional radio HAT (RAK6421): `firmware` (`meshcore`: ZephCore; `meshtastic`: meshtasticd; MeshHome runs what it runs), `available_firmware` and `unavailable_reasons` per firmware, `phase` (`absent`, `installing`, `needs_reboot`, `ready`, `stopped`, …), `available`, Pi `model`, `installed_version` (ZephCore), `meshtastic_version`, `meshtastic_module`, `meshtastic_slot`, and the service state. `POST` (signed-in browser only) takes `{"action": "install", "firmware": "meshtastic", "slot": 1, "module": "13300"}` to set it up or switch it (with `"use": true`, the HAT also becomes MeshHome's radio), or `remove`, `restart`, `reboot`. |
 
@@ -729,7 +730,11 @@ the map settings.
 `/api/auth/*` (except `GET /api/auth/me`, which returns `{"username", "home_name"}`),
 `/api/api-keys`, `/api/setup`, `POST`/`PUT` under `/api/system/*`, `PUT /api/settings/radio`,
 `PUT /api/settings/bot`, `PUT /api/settings/tracking`, `PUT /api/settings/units`, the Meshtastic radio's settings (`PUT /api/node/meshtastic/owner`, `/lora`, `/role` and `/position`; `POST`, `PUT` and `DELETE` under `/api/node/meshtastic/channels`; `GET /api/node/meshtastic/share-url?channels=0,1`, a share link holding channel keys; `POST /api/node/meshtastic/link-preview` and `/import` to join channels from someone's share link), `POST /api/offline-map/download`, `POST /api/offline-map/cancel`, `DELETE /api/offline-map`, `/api/bot/apps` (bot apps: `GET` the installed apps, the catalog and its `categories` (each app has a `category`), `POST /refresh` to read the catalog again, `POST /{id}` to install with `{"settings": {…}}`, `PATCH /{id}` for `settings` and `enabled`, `POST /{id}/update`, `DELETE /{id}`, `POST /{id}/test` to try a command without sending anything, and `POST /{id}/push-token` for a new upload address; an app with a push source has `push`: its upload `path`, `help`, `max_age` and `received_at`), `/api/web-push` (notifications on the calling browser: `GET` status and this server's VAPID public key, `PUT /api/web-push/subscription` with the browser's `PushSubscription` plus `dms` and `channels`, `DELETE /api/web-push/subscription`, `POST /api/web-push/test`), `PUT /api/settings/app-install` (`{"enabled": true}`; `409` unless the request came over HTTPS; turning it off always works), `/api/radio/pause`, `/api/radio/resume`, `/api/radio/test-connection`,
-`/api/radio/simulate-incoming`, `DELETE /api/simulated-data`, `POST /api/system/radio-hat`, and every `PUT`/`POST`/`DELETE`
+`/api/radio/simulate-incoming`, `DELETE /api/simulated-data`, `POST /api/system/radio-hat`, MeshHome's log
+(`GET /api/system/logs?view=history|recent&level=all|problems&component=radio&q=text&offset=0&before=<seq>&limit=50`:
+`history` is warnings, errors and events kept 30 days, with repeated lines counted; `recent` is every
+line since MeshHome started) and `GET /api/system/health/report` (the health check and recent problems as plain
+text), and every `PUT`/`POST`/`DELETE`
 under `/api/radio/config`, `/api/radio/channels`, `/api/radio/custom-vars` and `/api/radio/actions`,
 everything under `/api/remote` (remote administration of repeaters and room servers), and
 `/api/backups` and `/api/restore` (encrypted backup and restore).
@@ -770,6 +775,7 @@ changed so you can fetch it over HTTP. They do not carry message text.
 | `tracking-updated` | `device_id` (sometimes) | `GET /api/tracking`. Sent when a request goes out, an answer or a position arrives, and after changes. |
 | `courses-updated` | — | `GET /api/tracking/courses` |
 | `meshtastic-updated` | — | `GET /api/node/meshtastic` (the Meshtastic radio's settings changed) |
+| `log-updated` | — | New lines in MeshHome's log history (signed-in browsers only read it). |
 | `offline-map-updated` | — | `GET /api/offline-map` (about once a second while downloading). |
 
 A missing, invalid or expired key is refused during the handshake (HTTP `403`). The server
@@ -874,7 +880,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,
