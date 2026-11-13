@@ -304,6 +304,9 @@ class RadioHatAction(BaseModel):
     firmware: Literal["meshcore", "meshtastic"] = "meshcore"
     slot: Literal[1, 2] = 1
     module: Literal["13300", "13302"] = "13300"
+    # install: also make the HAT MeshHome's radio, running `firmware`'s mesh (Settings → Radio
+    # connection, where the mesh is chosen).
+    use: bool = False
 
 
 @router.get("/radio-hat")
@@ -341,13 +344,13 @@ async def radio_hat_action(
         detail = {"firmware": body.firmware, "slot": body.slot, "module": body.module}
     system_config.write_request(request)
     if body.action == "install":
-        await _switch_radio_modes(db, body.firmware)
+        await _switch_radio_modes(db, body.firmware, use=body.use)
     db.add(AuditEvent(kind=f"radio_hat.{body.action}", detail=detail))
     await db.commit()
     return {"accepted": True}
 
 
-async def _switch_radio_modes(db: AsyncSession, firmware: str) -> None:
+async def _switch_radio_modes(db: AsyncSession, firmware: str, use: bool = False) -> None:
     """The HAT runs one technology at a time. While MeshHome's radio is the HAT, MeshHome runs
     what the HAT runs: its contacts, channels and messages switch with it (each technology's are
     kept for switching back)."""
@@ -355,7 +358,10 @@ async def _switch_radio_modes(db: AsyncSession, firmware: str) -> None:
     from app.services import app_settings
 
     radio = await app_settings.get_radio_config(db)
-    if radio.mode == "hat" and radio.tech != firmware:
+    if use and radio.mode != "hat":
+        radio = radio.model_copy(update={"mode": "hat", "tech": firmware})
+        await app_settings.put_radio_config(db, radio)
+    elif radio.mode == "hat" and radio.tech != firmware:
         await app_settings.put_radio_config(db, radio.model_copy(update={"tech": firmware}))
     if radio.mode == "hat":
         supervisor.reload()

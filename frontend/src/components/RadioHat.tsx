@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeftRight, CheckCircle2, Cpu, Loader2, Power, RotateCw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, Loader2, Power, RotateCw, Trash2 } from "lucide-react";
 import { api, type Device, type HatFirmware, type RadioHatInfo } from "../lib/api";
 import { Dialog } from "./Dialog";
 import { Select } from "./SettingsKit";
@@ -23,7 +23,7 @@ function boardName(b: RadioHatInfo["board"]) {
   return b === "pi5" ? "Raspberry Pi 5" : b === "pi4" ? "Raspberry Pi 4" : "this computer";
 }
 
-type InstallBody = { action: "install"; firmware: HatFirmware; slot?: 1 | 2; module?: "13300" | "13302" };
+type InstallBody = { action: "install"; firmware: HatFirmware; slot?: 1 | 2; module?: "13300" | "13302"; use?: boolean };
 
 const FIRMWARE_NAME: Record<HatFirmware, string> = { meshcore: "MeshCore (ZephCore)", meshtastic: "Meshtastic (meshtasticd)" };
 
@@ -88,8 +88,9 @@ export function RadioHatPanel({
   const qc = useQueryClient();
   const hat = useRadioHat();
   const device = useQuery({ queryKey: ["device"], queryFn: () => api<Device>("/api/device"), enabled: connected });
-  const [confirm, setConfirm] = useState<null | "reboot" | "remove" | "switch">(null);
-  const [choice, setChoice] = useState<HatFirmware>(tech);
+  const [confirm, setConfirm] = useState<null | "reboot" | "remove">(null);
+  // What a new setup installs: the mesh chosen above (the only place it's chosen).
+  const choice = tech;
   const [slot, setSlot] = useState<1 | 2>(1);
   const [module, setModule] = useState<"13300" | "13302">("13300");
   const act = useMutation({
@@ -104,7 +105,8 @@ export function RadioHatPanel({
     },
   });
   const install = (firmware: HatFirmware) =>
-    act.mutate(firmware === "meshtastic" ? { action: "install", firmware, slot, module } : { action: "install", firmware });
+    // use: the HAT becomes MeshHome's radio, running that mesh.
+    act.mutate(firmware === "meshtastic" ? { action: "install", firmware, slot, module, use: true } : { action: "install", firmware, use: true });
 
   const h = hat.data;
   if (hat.isPending) return <p className="text-sm text-muted">Checking for a radio HAT…</p>;
@@ -114,7 +116,6 @@ export function RadioHatPanel({
   const failed = h.last_state === "failed" && !BUSY.has(h.phase);
   const freq = Number(device.data?.radio?.rf?.freq_mhz ?? NaN);
   const fw = h.firmware ?? "meshcore";
-  const other: HatFirmware = fw === "meshtastic" ? "meshcore" : "meshtastic";
   const version = fw === "meshtastic" ? h.meshtastic_version?.replace(/~.*/, "") : h.installed_version;
 
   return (
@@ -136,22 +137,6 @@ export function RadioHatPanel({
 
       {h.phase === "absent" && (
         <div className="space-y-3 text-sm">
-          <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="radiogroup" aria-label="What the radio HAT runs">
-            {(["meshcore", "meshtastic"] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="radio"
-                aria-checked={choice === k}
-                onClick={() => setChoice(k)}
-                className={
-                  "min-h-9 flex-1 rounded-md px-3 text-sm font-medium " + (choice === k ? "bg-surface shadow-sm" : "text-muted")
-                }
-              >
-                {k === "meshcore" ? "MeshCore" : "Meshtastic"}
-              </button>
-            ))}
-          </div>
           {!h.available_firmware?.[choice] ? (
             <p className="flex items-start gap-2 rounded-md bg-warn/10 px-3 py-2 text-ink">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
@@ -246,9 +231,6 @@ export function RadioHatPanel({
             <Button onClick={() => act.mutate("restart")} disabled={pending}>
               <RotateCw className="size-4" aria-hidden /> Restart radio
             </Button>
-            <Button onClick={() => setConfirm("switch")} disabled={pending || !h.available_firmware?.[other]}>
-              <ArrowLeftRight className="size-4" aria-hidden /> Switch to {other === "meshtastic" ? "Meshtastic" : "MeshCore"}
-            </Button>
             <Button variant="danger" onClick={() => setConfirm("remove")} disabled={pending}>
               <Trash2 className="size-4" aria-hidden /> Remove radio software
             </Button>
@@ -285,44 +267,6 @@ export function RadioHatPanel({
           </p>
         </Dialog>
       )}
-      {confirm === "switch" && (
-        <Dialog
-          title={`Switch the HAT to ${FIRMWARE_NAME[other]}?`}
-          onClose={() => setConfirm(null)}
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setConfirm(null)} autoFocus>
-                Cancel
-              </Button>
-              <Button variant="primary" disabled={act.isPending} onClick={() => install(other)}>
-                Switch
-              </Button>
-            </>
-          }
-        >
-          <div className="space-y-3 text-sm">
-            {other === "meshtastic" ? (
-              <>
-                <p>
-                  The HAT runs Meshtastic instead of MeshCore, and MeshHome with it: contacts, channels, messages and trackers
-                  become the Meshtastic mesh's. MeshCore's are kept, and come back when you switch back.
-                </p>
-                <p className="text-muted">
-                  ZephCore's identity, contacts and channels stay on the Pi. Meshtastic is installed with apt from its own
-                  repository the first time (a few minutes).
-                </p>
-                <SlotFields slot={slot} module={module} onSlot={setSlot} onModule={setModule} />
-              </>
-            ) : (
-              <p>
-                The HAT runs ZephCore again, and MeshHome runs MeshCore: its identity, contacts, channels and messages come back
-                as before. Meshtastic's are kept (its channels and node list stay on the Pi) for switching back.
-              </p>
-            )}
-            <ErrorText error={act.error} />
-          </div>
-        </Dialog>
-      )}
       {confirm === "remove" && (
         <Dialog
           size="sm"
@@ -347,5 +291,65 @@ export function RadioHatPanel({
         </Dialog>
       )}
     </div>
+  );
+}
+
+/**
+ * Settings → Radio connection, on Save with the radio HAT and the other mesh chosen: switch the
+ * HAT's software (ZephCore ↔ meshtasticd). The HAT becomes MeshHome's radio, running that mesh.
+ */
+export function SwitchHatDialog({ to, onClose }: { to: HatFirmware; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [slot, setSlot] = useState<1 | 2>(1);
+  const [module, setModule] = useState<"13300" | "13302">("13300");
+  const go = useMutation({
+    mutationFn: () =>
+      api("/api/system/radio-hat", {
+        method: "POST",
+        json: to === "meshtastic" ? { action: "install", firmware: to, slot, module, use: true } : { action: "install", firmware: to, use: true },
+      }),
+    onSuccess: () => {
+      // Switching the HAT switches what MeshHome runs: everything is read again.
+      qc.invalidateQueries();
+      onClose();
+    },
+  });
+  return (
+    <Dialog
+      title={`Switch the HAT to ${FIRMWARE_NAME[to]}?`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} autoFocus>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={go.isPending} onClick={() => go.mutate()}>
+            Switch
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        {to === "meshtastic" ? (
+          <>
+            <p>
+              The HAT runs Meshtastic instead of MeshCore, and MeshHome with it: contacts, channels, messages and trackers become
+              the Meshtastic mesh's. MeshCore's are kept, and come back when you switch back.
+            </p>
+            <p className="text-muted">
+              ZephCore's identity, contacts and channels stay on the Pi. Meshtastic is installed with apt from its own repository
+              the first time (a few minutes).
+            </p>
+            <SlotFields slot={slot} module={module} onSlot={setSlot} onModule={setModule} />
+          </>
+        ) : (
+          <p>
+            The HAT runs ZephCore again, and MeshHome runs MeshCore: its identity, contacts, channels and messages come back as
+            before. Meshtastic's are kept (its channels and node list stay on the Pi) for switching back.
+          </p>
+        )}
+        <ErrorText error={go.error} />
+      </div>
+    </Dialog>
   );
 }

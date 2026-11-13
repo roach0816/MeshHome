@@ -1,5 +1,0 @@
-GET /api/settings/meshtastic api path removed without deprecation
-PUT /api/settings/meshtastic api path removed without deprecation
-GET /api/tracking/meshtastic api path removed without deprecation
-POST /api/tracking/meshtastic/channel api path removed without deprecation
-GET /api/tracking/meshtastic/channel-url api path removed without deprecation

@@ -146,9 +146,9 @@ Linux, which drives the radio over SPI and serves the standard MeshCore companio
 ### Meshtastic on the HAT
 
 The HAT can run Meshtastic instead of ZephCore, and MeshHome then runs Meshtastic
-([features](features.md#meshcore-or-meshtastic)): **Settings → Radio connection → Radio HAT on this
-Pi → Switch to Meshtastic**, or `sudo meshhome radio-hat setup --firmware meshtastic [--slot 1|2]
-[--module 13300|13302]`.
+([features](features.md#meshcore-or-meshtastic)): in **Settings → Radio connection**, choose Mesh
+**Meshtastic** with mode **Radio HAT on this Pi** and select **Switch the HAT to Meshtastic…**, or run
+`sudo meshhome radio-hat setup --firmware meshtastic [--slot 1|2] [--module 13300|13302]`.
 
 - **What it does:**
   - Adds Meshtastic's apt repository (`download.opensuse.org`, its `beta` channel) after checking its
@@ -159,7 +159,7 @@ Pi → Switch to Meshtastic**, or `sudo meshhome radio-hat setup --firmware mesh
   - Copies meshtasticd's own settings for the RAK6421 with your module and slot, names the network
     interface its node number comes from (Ethernet, else Wi-Fi), and adds a systemd drop-in so only
     this Pi can reach its API (port 4403, no password) and it waits for the SPI bus.
-- **Switching back** (*Switch to MeshCore*) stops and masks meshtasticd and starts ZephCore again,
+- **Switching back** (Mesh **MeshCore**, then *Switch the HAT to MeshCore…*) stops and masks meshtasticd and starts ZephCore again,
   and MeshHome runs MeshCore. meshtasticd's identity and channels stay in `/var/lib/meshtasticd`.
 - **Requirements:** 64-bit Raspberry Pi OS or Debian 12 or 13. meshtasticd is GPL-3.0 and not part
   of MeshHome, which talks to it over its API only.

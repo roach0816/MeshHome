@@ -9653,6 +9653,11 @@
             ],
             "title": "Module",
             "default": "13300"
+          },
+          "use": {
+            "type": "boolean",
+            "title": "Use",
+            "default": false
           }
         },
         "type": "object",

@@ -232,6 +232,21 @@ async def test_switching_the_hat_to_meshtastic_and_back(client, native, pi5):
     radio = (await client.get("/api/settings/radio")).json()
     assert radio["mode"] == "hat" and radio["tech"] == "meshcore"
 
+    # From another radio, switching the HAT with "use" makes it MeshHome's radio too.
+    (native / "config-request.json").unlink()
+    assert (
+        await client.put("/api/settings/radio", headers=csrf(client), json={"mode": "simulated"})
+    ).status_code == 200
+    r = await client.post(
+        "/api/system/radio-hat",
+        headers=csrf(client),
+        json={"action": "install", "firmware": "meshtastic", "use": True},
+    )
+    assert r.status_code == 202
+    radio = (await client.get("/api/settings/radio")).json()
+    assert radio["mode"] == "hat"
+    (native / "config-request.json").unlink()
+
     # None: no radio by choice, so nothing is missed (no collection gap stays open).
     r = await client.put("/api/settings/radio", headers=csrf(client), json={"mode": "none"})
     assert r.status_code == 200

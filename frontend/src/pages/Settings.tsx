@@ -35,7 +35,7 @@ import { OfflineMapSection } from "../components/OfflineMap";
 import { NetworkSection } from "../components/NetworkSettings";
 import { ApiKeysSection } from "../components/ApiKeys";
 import { BackupSection } from "../components/BackupRestore";
-import { RadioHatPanel, useRadioHat } from "../components/RadioHat";
+import { RadioHatPanel, SwitchHatDialog, useRadioHat } from "../components/RadioHat";
 import { FirmwareBadge, useRadioFirmware } from "../components/RadioFirmware";
 import {
   api,
@@ -378,6 +378,9 @@ function RadioSection() {
   const hatFw: RadioTech = hat.data?.firmware ?? "meshcore";
   const hatInstalled = !!hat.data && ["ready", "stopped", "needs_reboot"].includes(hat.data.phase);
   const hatUsable = hatInstalled && hatFw === tech;
+  // The HAT runs the other mesh: saving switches its software (after asking).
+  const hatSwitch = mode === "hat" && hatInstalled && hatFw !== tech && !!hat.data?.available_firmware?.[tech];
+  const [switching, setSwitching] = useState(false);
 
   return (
     <Section
@@ -467,7 +470,7 @@ function RadioSection() {
                       "Radio HAT on this Pi",
                       !hatInstalled || hatFw === tech
                         ? `RAK6421 LoRa HAT, running ${TECH_NAME[tech]}`
-                        : `Runs ${TECH_NAME[hatFw]} now: switch it below`,
+                        : `Runs ${TECH_NAME[hatFw]} now: saving switches it to ${TECH_NAME[tech]}`,
                     ],
                   ]
                 : []),
@@ -536,13 +539,15 @@ function RadioSection() {
           beforeReboot={cfg.data?.mode !== "hat" ? () => save.mutateAsync() : undefined}
         />
       )}
-      {mode === "hat" && hat.data && !hatUsable && (cfg.data?.mode !== "hat" || tech !== cfg.data?.tech) && (
+      {mode === "hat" && hat.data && !hatInstalled && cfg.data?.mode !== "hat" && (
+        <p className="text-xs text-muted">Set up the radio HAT first, then select Save and reconnect.</p>
+      )}
+      {hatSwitch && (
         <p className="text-xs text-muted">
-          {hatInstalled
-            ? `The HAT runs ${TECH_NAME[hatFw]}. Switch it to ${TECH_NAME[tech]} above, then select Save and reconnect.`
-            : "Set up the radio HAT first, then select Save and reconnect."}
+          The HAT runs {TECH_NAME[hatFw]}. Saving switches it to {TECH_NAME[tech]} (you'll be asked first).
         </p>
       )}
+      {switching && <SwitchHatDialog to={tech} onClose={() => setSwitching(false)} />}
 
       {mode === "simulated" && tech === "meshcore" && (
         <Field label="Seconds between simulated messages" htmlFor="sim-interval" hint="On average; 0 turns automatic traffic off.">
@@ -560,10 +565,14 @@ function RadioSection() {
       <div className="flex flex-wrap gap-2">
         <Button
           variant="primary"
-          onClick={() => save.mutate()}
-          disabled={!dirty || save.isPending || (mode === "hat" && !hatUsable && (cfg.data?.mode !== "hat" || tech !== cfg.data?.tech))}
+          onClick={() => (hatSwitch ? setSwitching(true) : save.mutate())}
+          disabled={
+            !dirty ||
+            save.isPending ||
+            (mode === "hat" && !hatUsable && !hatSwitch && (cfg.data?.mode !== "hat" || tech !== cfg.data?.tech))
+          }
         >
-          {save.isPending ? "Saving…" : "Save and reconnect"}
+          {save.isPending ? "Saving…" : hatSwitch ? `Switch the HAT to ${TECH_NAME[tech]}…` : "Save and reconnect"}
         </Button>
         {cfg.data && cfg.data.mode !== "none" && (
           <Button onClick={() => pause.mutate(!cfg.data!.paused)} disabled={pause.isPending}>

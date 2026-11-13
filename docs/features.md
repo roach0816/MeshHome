@@ -18,8 +18,8 @@ A tour of everything MeshHome does. The [README](../README.md#what-it-does) has 
 MeshHome runs one mesh technology at a time, chosen in **Settings → Radio → Radio connection →
 Mesh**: **MeshCore** or **Meshtastic**. Everything follows it: contacts, channels, messages,
 notifications, the bot, the map and tracking show that mesh's. The other's are kept, and come back
-when you switch back. With the **radio HAT**, MeshHome runs what the HAT runs (switch the HAT
-between ZephCore and meshtasticd in the same place).
+when you switch back. With the **radio HAT**, MeshHome runs what the HAT runs: choosing the
+other mesh and saving switches the HAT's software (ZephCore or meshtasticd), after asking.
 
 **With Meshtastic:**
 

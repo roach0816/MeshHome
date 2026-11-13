@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.2.0**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.2.1**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -719,7 +719,7 @@ the map settings.
 | `GET /api/radio/channels/hashtag-key?name=%23hikers` | The key of a public `#hashtag` channel, derived from its name: `{"name", "hex", "base64"}`. |
 | `GET /api/system/update` | Installed version and whether an update is available. |
 | `GET /api/radio/firmware` | The radio's MeshCore firmware compared with MeshCore's latest companion release: `{"available", "model", "current_version", "latest": {"version", "published_at", "notes_url"}, "up_to_date"}`. `up_to_date` is `null` when unknown; `available: false` (with a `reason`) for the simulated radio or the radio HAT. |
-| `GET /api/system/radio-hat` | Raspberry Pi installs: the optional radio HAT (RAK6421): `firmware` (`meshcore`: ZephCore; `meshtastic`: meshtasticd; MeshHome runs what it runs), `available_firmware` and `unavailable_reasons` per firmware, `phase` (`absent`, `installing`, `needs_reboot`, `ready`, `stopped`, …), `available`, Pi `model`, `installed_version` (ZephCore), `meshtastic_version`, `meshtastic_module`, `meshtastic_slot`, and the service state. `POST` (signed-in browser only) takes `{"action": "install", "firmware": "meshtastic", "slot": 1, "module": "13300"}` to set it up or switch it, or `remove`, `restart`, `reboot`. |
+| `GET /api/system/radio-hat` | Raspberry Pi installs: the optional radio HAT (RAK6421): `firmware` (`meshcore`: ZephCore; `meshtastic`: meshtasticd; MeshHome runs what it runs), `available_firmware` and `unavailable_reasons` per firmware, `phase` (`absent`, `installing`, `needs_reboot`, `ready`, `stopped`, …), `available`, Pi `model`, `installed_version` (ZephCore), `meshtastic_version`, `meshtastic_module`, `meshtastic_slot`, and the service state. `POST` (signed-in browser only) takes `{"action": "install", "firmware": "meshtastic", "slot": 1, "module": "13300"}` to set it up or switch it (with `"use": true`, the HAT also becomes MeshHome's radio), or `remove`, `restart`, `reboot`. |
 
 `PUT /api/settings/notifications`, `PUT /api/settings/map` and `PUT /api/settings/routing` are
 **write** and take the same shape they return.
@@ -874,7 +874,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,
