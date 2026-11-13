@@ -816,6 +816,10 @@ export interface TrackedDevice {
   battery_v: number | null;
   battery_pct: number | null;
   battery_low: boolean;
+  /** Meshtastic: it reports running on external power. */
+  external_power: boolean;
+  /** Its latest telemetry, each group with when it was reported. */
+  telemetry: TrackerTelemetry | null;
   course_id: string | null;
   progress: CourseProgress | null;
   pace: TrackPace | null;
@@ -863,6 +867,40 @@ export interface TrackSensors {
   temp_c: number | null;
   pressure_hpa: number | null;
   baro_alt_m: number | null;
+  humidity: number | null;
+  lux: number | null;
+}
+
+export interface TrackerTelemetry {
+  device: {
+    at: number;
+    battery_pct: number | null;
+    voltage: number | null;
+    channel_util: number | null;
+    air_util_tx: number | null;
+    uptime_s: number | null;
+  } | null;
+  environment: {
+    at: number;
+    temp_c: number | null;
+    humidity: number | null;
+    pressure_hpa: number | null;
+    lux: number | null;
+    baro_alt_m: number | null;
+  } | null;
+}
+
+export interface TelemetryPoint {
+  at: string;
+  battery_v: number | null;
+  battery_pct: number | null;
+  temp_c: number | null;
+  humidity: number | null;
+  pressure_hpa: number | null;
+  lux: number | null;
+  snr: number | null;
+  rssi: number | null;
+  hops: number | null;
 }
 
 export interface Bounds {

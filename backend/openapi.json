@@ -2752,6 +2752,62 @@
         }
       }
     },
+    "/api/tracking/devices/{device_id}/telemetry": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "summary": "Telemetry History",
+        "description": "Its battery, environment readings and signal over the last `hours` (from its positions),\noldest first, thinned to at most 300 points.",
+        "operationId": "telemetry_history_api_tracking_devices__device_id__telemetry_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Device Id"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 24,
+              "title": "Hours"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryHistory"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tracking/devices/{device_id}/track.gpx": {
       "get": {
         "tags": [
@@ -7763,6 +7819,74 @@
         "type": "object",
         "title": "DevicePatch"
       },
+      "DeviceTelemetry": {
+        "properties": {
+          "at": {
+            "type": "number",
+            "title": "At"
+          },
+          "battery_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Pct"
+          },
+          "voltage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voltage"
+          },
+          "channel_util": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Util"
+          },
+          "air_util_tx": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Air Util Tx"
+          },
+          "uptime_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uptime S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at"
+        ],
+        "title": "DeviceTelemetry"
+      },
       "DownloadIn": {
         "properties": {
           "bounds": {
@@ -7827,6 +7951,74 @@
           "bounds"
         ],
         "title": "DownloadIn"
+      },
+      "EnvironmentTelemetry": {
+        "properties": {
+          "at": {
+            "type": "number",
+            "title": "At"
+          },
+          "temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp C"
+          },
+          "humidity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity"
+          },
+          "pressure_hpa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Hpa"
+          },
+          "lux": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lux"
+          },
+          "baro_alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baro Alt M"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at"
+        ],
+        "title": "EnvironmentTelemetry"
       },
       "FavoriteIn": {
         "properties": {
@@ -10698,6 +10890,28 @@
               }
             ],
             "title": "Baro Alt M"
+          },
+          "humidity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity"
+          },
+          "lux": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lux"
           }
         },
         "type": "object",
@@ -11193,6 +11407,27 @@
         ],
         "title": "SubscriptionOut"
       },
+      "TelemetryHistory": {
+        "properties": {
+          "hours": {
+            "type": "integer",
+            "title": "Hours"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hours",
+          "points"
+        ],
+        "title": "TelemetryHistory"
+      },
       "TelemetryIn": {
         "properties": {
           "base": {
@@ -11230,6 +11465,119 @@
           "environment"
         ],
         "title": "TelemetryIn"
+      },
+      "TelemetryPoint": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "battery_v": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery V"
+          },
+          "battery_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Pct"
+          },
+          "temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp C"
+          },
+          "humidity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity"
+          },
+          "pressure_hpa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Hpa"
+          },
+          "lux": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lux"
+          },
+          "snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr"
+          },
+          "rssi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rssi"
+          },
+          "hops": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hops"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at"
+        ],
+        "title": "TelemetryPoint"
       },
       "TestConnectionIn": {
         "properties": {
@@ -11610,6 +11958,21 @@
             "title": "Battery Low",
             "default": false
           },
+          "external_power": {
+            "type": "boolean",
+            "title": "External Power",
+            "default": false
+          },
+          "telemetry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackerTelemetry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "course_id": {
             "anyOf": [
               {
@@ -11728,6 +12091,33 @@
           "trail"
         ],
         "title": "TrackedDeviceOut"
+      },
+      "TrackerTelemetry": {
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceTelemetry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EnvironmentTelemetry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "TrackerTelemetry",
+        "description": "Its latest readings, each group with when it was reported."
       },
       "TrackingConfig": {
         "properties": {

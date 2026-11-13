@@ -139,6 +139,10 @@ class MeshtasticSource:
                 if ni.get("hops_away") is not None:
                     node.hops_away = int(ni["hops_away"])
                 self._apply_metrics(node, ni.get("device_metrics") or {})
+                if ni.get("device_metrics") and num != adapter.my_num:
+                    # Its battery as the radio last heard it, so a tracker shows it at once.
+                    heard = float(ni.get("last_heard") or time.time())
+                    recorded |= await self._battery(s, num, ni["device_metrics"], at=min(heard, time.time()))
                 pos = ni.get("position") or {}
                 fix = P.position_fix(pos)
                 if fix and num != adapter.my_num:
@@ -306,6 +310,7 @@ class MeshtasticSource:
                 at=at,
                 source="meshtastic",
                 battery_v=d.battery_v,
+                battery_pct=d.battery_reported_pct,
                 **fix,
                 **(link or {}),
                 **env,
@@ -316,36 +321,56 @@ class MeshtasticSource:
         d.failures = 0
         return True
 
-    async def _battery(self, s: Any, num: int, dm: dict[str, Any]) -> bool:
+    async def _battery(self, s: Any, num: int, dm: dict[str, Any], at: float | None = None) -> bool:
         d = await self._tracked(s, num)
         if d is None:
             return False
+        at = at or time.time()
+        prev = (d.telemetry or {}).get("device") or {}
+        if prev.get("at") and float(prev["at"]) > at:
+            return False  # older than what it has (the node list after a reconnect)
         level, volts = dm.get("battery_level"), dm.get("voltage")
         if level:
             d.battery_reported_pct = int(level)
         if volts and 2.5 <= float(volts) <= 5.0:
             d.battery_v = round(float(volts), 2)
             d.battery_max_v = max(d.battery_v, d.battery_max_v or 0.0)
-        return bool(level or volts)
+        device = {
+            "at": at,
+            "battery_pct": int(level) if level else None,
+            "voltage": round(float(volts), 2) if volts else None,
+            "channel_util": round(float(dm["channel_utilization"]), 1)
+            if dm.get("channel_utilization")
+            else None,
+            "air_util_tx": round(float(dm["air_util_tx"]), 2) if dm.get("air_util_tx") else None,
+            "uptime_s": int(dm["uptime_seconds"]) if dm.get("uptime_seconds") else None,
+        }
+        d.telemetry = {**(d.telemetry or {}), "device": {k: v for k, v in device.items() if v is not None}}
+        return True
 
     async def _environment(self, s: Any, num: int, env: dict[str, Any]) -> bool:
         readings: dict[str, float] = {}
         if env.get("temperature") is not None:
             readings["temp_c"] = round(float(env["temperature"]), 2)
+        if env.get("relative_humidity"):
+            readings["humidity"] = round(float(env["relative_humidity"]), 1)
         if env.get("barometric_pressure"):
             readings["pressure_hpa"] = round(float(env["barometric_pressure"]), 2)
+        if env.get("lux") is not None:
+            readings["lux"] = round(float(env["lux"]), 1)
         if not readings:
             return False
         d = await self._tracked(s, num)
         if d is None:
             return False
+        d.telemetry = {**(d.telemetry or {}), "environment": {"at": time.time(), **readings}}
         last = await self._last_position(s, d.id)
         if last is not None and utcnow() - last.at <= ENV_WITH_POSITION:
             for k, v in readings.items():
                 setattr(last, k, v)
             return True
         self._pending_env[num] = readings  # kept with its next position
-        return False
+        return True  # its latest telemetry changed
 
     # ---- asking and settings ---------------------------------------------------------
 

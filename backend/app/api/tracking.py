@@ -83,6 +83,51 @@ class Sensors(BaseModel):
     temp_c: float | None
     pressure_hpa: float | None
     baro_alt_m: float | None
+    humidity: float | None = None
+    lux: float | None = None
+
+
+class DeviceTelemetry(BaseModel):
+    at: float  # when it was reported (epoch seconds)
+    battery_pct: int | None = None  # as the tracker reports it (Meshtastic); 101: on external power
+    voltage: float | None = None
+    channel_util: float | None = None  # % of airtime the tracker hears in use
+    air_util_tx: float | None = None  # % of airtime it transmits (last hour)
+    uptime_s: int | None = None
+
+
+class EnvironmentTelemetry(BaseModel):
+    at: float
+    temp_c: float | None = None
+    humidity: float | None = None
+    pressure_hpa: float | None = None
+    lux: float | None = None
+    baro_alt_m: float | None = None
+
+
+class TrackerTelemetry(BaseModel):
+    """Its latest readings, each group with when it was reported."""
+
+    device: DeviceTelemetry | None = None
+    environment: EnvironmentTelemetry | None = None
+
+
+class TelemetryPoint(BaseModel):
+    at: datetime
+    battery_v: float | None = None
+    battery_pct: int | None = None
+    temp_c: float | None = None
+    humidity: float | None = None
+    pressure_hpa: float | None = None
+    lux: float | None = None
+    snr: float | None = None
+    rssi: float | None = None
+    hops: int | None = None
+
+
+class TelemetryHistory(BaseModel):
+    hours: int
+    points: list[TelemetryPoint]  # oldest first, at most 300
 
 
 class TrackedDeviceOut(BaseModel):
@@ -112,6 +157,10 @@ class TrackedDeviceOut(BaseModel):
     # About how full its battery is, from the voltage; low: at or under 20 %.
     battery_pct: int | None = None
     battery_low: bool = False
+    # Meshtastic: it reports running on external power (USB or a charger).
+    external_power: bool = False
+    # Its latest telemetry (battery, device and environment readings), with times.
+    telemetry: TrackerTelemetry | None = None
     # The course chosen for it (None: the one its position is on).
     course_id: uuid.UUID | None = None
     progress: CourseProgress | None = None
@@ -349,6 +398,8 @@ async def _device_out(
                         TrackPosition.temp_c.is_not(None),
                         TrackPosition.pressure_hpa.is_not(None),
                         TrackPosition.baro_alt_m.is_not(None),
+                        TrackPosition.humidity.is_not(None),
+                        TrackPosition.lux.is_not(None),
                     ),
                 )
                 .order_by(TrackPosition.at.desc())
@@ -413,7 +464,11 @@ async def _device_out(
             temp_c=sensor_row.temp_c,
             pressure_hpa=sensor_row.pressure_hpa,
             baro_alt_m=sensor_row.baro_alt_m,
+            humidity=sensor_row.humidity,
+            lux=sensor_row.lux,
         ),
+        external_power=d.battery_reported_pct is not None and d.battery_reported_pct > 100,
+        telemetry=_telemetry(d, n),
         current_radio=current,
         is_simulated=sim,
         next_poll_in=tracking.manager.next_poll_in(d.id) if d.polling and n is None else None,
@@ -737,6 +792,71 @@ async def clear_positions(
 
 def _filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")[:60] or "track"
+
+
+def _telemetry(d: TrackedDevice, n: MeshNode | None) -> TrackerTelemetry | None:
+    tel = d.telemetry or {}
+    device = tel.get("device")
+    if device is None and n is not None and (n.battery_level is not None or n.voltage is not None):
+        # Not reported since it was added: what the radio's node list says.
+        heard = n.last_heard_at or n.updated_at
+        device = {
+            "at": heard.timestamp() if heard else None,
+            "battery_pct": n.battery_level,
+            "voltage": round(n.voltage, 2) if n.voltage else None,
+        }
+    out = TrackerTelemetry(
+        device=DeviceTelemetry(**device) if device and device.get("at") else None,
+        environment=EnvironmentTelemetry(**tel["environment"])
+        if tel.get("environment", {}).get("at")
+        else None,
+    )
+    return out if out.device or out.environment else None
+
+
+@router.get("/tracking/devices/{device_id}/telemetry", response_model=TelemetryHistory)
+async def telemetry_history(
+    device_id: uuid.UUID,
+    hours: int = Query(default=24, ge=1, le=24 * 30),
+    ctx: AuthContext = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Its battery, environment readings and signal over the last `hours` (from its positions),
+    oldest first, thinned to at most 300 points."""
+    d, _c, _n, _ = await _load(db, device_id)
+    rows = (
+        (
+            await db.execute(
+                select(TrackPosition)
+                .where(TrackPosition.device_id == d.id, TrackPosition.at >= utcnow() - timedelta(hours=hours))
+                .order_by(TrackPosition.at)
+                .limit(20000)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) > 300:
+        step = len(rows) / 300
+        rows = [rows[int(i * step)] for i in range(299)] + [rows[-1]]
+    return TelemetryHistory(
+        hours=hours,
+        points=[
+            TelemetryPoint(
+                at=r.at,
+                battery_v=r.battery_v,
+                battery_pct=r.battery_pct if r.battery_pct is not None and 0 < r.battery_pct <= 100 else None,
+                temp_c=r.temp_c,
+                humidity=r.humidity,
+                pressure_hpa=r.pressure_hpa,
+                lux=r.lux,
+                snr=r.snr,
+                rssi=r.rssi,
+                hops=len(r.hops) if isinstance(r.hops, list) and r.route is not None else None,
+            )
+            for r in rows
+        ],
+    )
 
 
 @router.get("/tracking/devices/{device_id}/track.gpx")

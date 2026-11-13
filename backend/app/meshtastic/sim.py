@@ -375,6 +375,8 @@ class SimLink(Link):
                 "battery_level": level,
                 "voltage": round(volts, 3),
                 "uptime_seconds": int(n * TELEMETRY_EVERY),
+                "channel_utilization": round(self._rng.uniform(2, 9), 1),
+                "air_util_tx": round(self._rng.uniform(0.1, 0.6), 2),
             }
         }
         self._packet(num, P.TELEMETRY_APP, P.encode({"time": int(time.time()), **dev}, P.TELEMETRY))
@@ -383,6 +385,7 @@ class SimLink(Link):
                 "temperature": round(27.5 + self._rng.uniform(-0.6, 0.6), 1),
                 "barometric_pressure": round(955.0 + self._rng.uniform(-0.5, 0.5), 1),
                 "relative_humidity": round(self._rng.uniform(40, 60), 1),
+                "lux": round(self._rng.uniform(800, 2400), 1),
             }
         }
         self._packet(num, P.TELEMETRY_APP, P.encode({"time": int(time.time()), **env}, P.TELEMETRY))

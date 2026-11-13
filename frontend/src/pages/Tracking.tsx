@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
+  Activity,
   BatteryFull,
   BatteryLow,
   BatteryMedium,
@@ -36,6 +37,7 @@ import { cx, formatDateTime } from "../lib/util";
 import { Badge, Button, ErrorText, Field, IconButton, Input } from "../components/ui";
 import { Select } from "../components/SettingsKit";
 import { Dialog } from "../components/Dialog";
+import { TelemetryChips, TelemetryDialog } from "../components/TrackerTelemetry";
 import { GATEWAY_COLOR, markerIcon } from "./NodeMap";
 
 // ---- time and formatting ----------------------------------------------------------------------
@@ -126,11 +128,10 @@ function linkText(d: TrackedDevice): string | null {
     const n = l.hops.length;
     const last = n ? hopName(l.hops[n - 1]) : null;
     const via = n === 0 ? "heard directly" : last ? `via ${last}${n > 1 ? ` (${n} hops)` : ""}` : `${n} hop${n === 1 ? "" : "s"}`;
-    return `${via}${l.snr !== null ? ` · SNR ${l.snr.toFixed(l.snr % 1 ? 1 : 0)} dB` : ""}`;
+    return via;
   }
   const near = l.hops.length ? l.hops[l.hops.length - 1] : null;
-  const via = near ? `via ${near.name ?? near.hash.toUpperCase()}${l.hops.length > 1 ? ` (+${l.hops.length - 1})` : ""}` : "heard directly";
-  return `${via}${l.snr !== null ? ` · SNR ${l.snr.toFixed(l.snr % 1 ? 1 : 0)} dB` : ""}`;
+  return near ? `via ${near.name ?? near.hash.toUpperCase()}${l.hops.length > 1 ? ` (+${l.hops.length - 1})` : ""}` : "heard directly";
 }
 
 function routeText(d: TrackedDevice): string | null {
@@ -153,6 +154,8 @@ function sensorText(u: U, d: TrackedDevice): string | null {
   if (s.temp_c !== null) parts.push(`${u.temp(s.temp_c).toFixed(u.imperial ? 0 : 1)}${u.tempUnit} inside the tracker`);
   if (s.baro_alt_m !== null) parts.push(`${Math.round(u.alt(s.baro_alt_m))} ${u.altUnit} by barometer`);
   if (s.pressure_hpa !== null) parts.push(`${u.pressure(s.pressure_hpa).toFixed(u.pressureDigits)} ${u.pressureUnit}`);
+  if (s.humidity !== null) parts.push(`${Math.round(s.humidity)}% humidity`);
+  if (s.lux !== null) parts.push(`${Math.round(s.lux).toLocaleString()} lux`);
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -216,6 +219,7 @@ export function Tracking() {
   const [tab, setTab] = useState<"trackers" | "courses">("trackers");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<TrackedDevice | null>(null);
+  const [telemetryFor, setTelemetryFor] = useState<TrackedDevice | null>(null);
 
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
@@ -346,6 +350,12 @@ export function Tracking() {
       if (rt) line(rt);
       const sn = sensorText(u, dev);
       if (sn) line(sn);
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "mt-1 text-xs font-medium text-[var(--accent)] underline";
+      more.textContent = "Telemetry and history";
+      more.onclick = () => setTelemetryFor(dev);
+      pop.append(more);
       mk.bindPopup(pop).addTo(markers);
     }
   }, [d, shown, now]);
@@ -428,6 +438,7 @@ export function Tracking() {
             u={u}
             onFocus={focus}
             onEdit={setEditing}
+            onTelemetry={setTelemetryFor}
             onToggle={(dev) => save.mutate({ id: dev.id, body: { show: !dev.show } })}
             onPoll={(dev) => poll.mutate(dev.id)}
             onAdd={() => setAdding(true)}
@@ -519,11 +530,15 @@ export function Tracking() {
                 const pl = paceLine(u, dev, now);
                 const bat = batteryText(dev);
                 return (
-                  <button
+                  <div
                     key={dev.id}
+                    className="pointer-events-auto flex min-h-12 max-w-full items-stretch rounded-xl border border-line bg-surface/95 shadow-lg backdrop-blur"
+                  >
+                  <button
                     type="button"
                     onClick={() => focus(dev)}
-                    className="pointer-events-auto flex min-h-12 max-w-full items-center gap-2.5 rounded-xl border border-line bg-surface/95 px-3 py-1.5 text-left shadow-lg backdrop-blur"
+                    className="flex min-w-0 items-center gap-2.5 rounded-l-xl px-3 py-1.5 text-left hover:bg-surface-2/60"
+                    title="Centre the map on it"
                   >
                     <span aria-hidden className={cx("size-3 shrink-0 rounded-full", isStale(dev, now) && "opacity-50")} style={{ background: dev.color }} />
                     <span className="min-w-0">
@@ -532,16 +547,26 @@ export function Tracking() {
                       {prog && <span className={cx("block truncate text-xs", TONE_CLASS[prog.tone])}>{prog.text}</span>}
                       {pl && <span className="block truncate text-xs text-muted">{pl}</span>}
                     </span>
-                    {bat && (
-                      <span
-                        className={cx("ml-1 flex shrink-0 items-center gap-0.5 self-start pt-0.5 text-xs", dev.battery_low ? "font-semibold text-danger" : "text-muted")}
-                        title={dev.battery_v !== null ? `Battery ${dev.battery_v.toFixed(2)} V` : "Battery"}
-                      >
+                  </button>
+                  {/* Its telemetry, one tap away (the list is hidden on phones). */}
+                  <button
+                    type="button"
+                    onClick={() => setTelemetryFor(dev)}
+                    className="flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-r-xl border-l border-line px-2.5 text-xs hover:bg-surface-2/60"
+                    aria-label={`Telemetry for ${displayName(dev)}${bat ? `, battery ${bat}` : ""}`}
+                    title="Battery, sensors, signal and their history"
+                  >
+                    {bat ? (
+                      <span className={cx("flex items-center gap-0.5", dev.battery_low ? "font-semibold text-danger" : "text-muted")}>
                         <BatteryIcon d={dev} />
                         {bat}
                       </span>
+                    ) : (
+                      <Activity className="size-4 text-muted" aria-hidden />
                     )}
+                    <span className="font-medium text-accent">Telemetry</span>
                   </button>
+                  </div>
                 );
               })}
             </div>
@@ -577,6 +602,14 @@ export function Tracking() {
       </div>
 
       {adding && d && <AddTrackerDialog data={d} onClose={() => setAdding(false)} />}
+      {telemetryFor && (
+        <TelemetryDialog
+          dev={devices.find((x) => x.id === telemetryFor.id) ?? telemetryFor}
+          u={u}
+          name={displayName(telemetryFor)}
+          onClose={() => setTelemetryFor(null)}
+        />
+      )}
       {editing && d && (
         <EditTrackerDialog
           device={devices.find((x) => x.id === editing.id) ?? editing}
@@ -597,6 +630,7 @@ function TrackerList({
   u,
   onFocus,
   onEdit,
+  onTelemetry,
   onToggle,
   onPoll,
   onAdd,
@@ -609,6 +643,7 @@ function TrackerList({
   u: U;
   onFocus: (d: TrackedDevice) => void;
   onEdit: (d: TrackedDevice) => void;
+  onTelemetry: (d: TrackedDevice) => void;
   onToggle: (d: TrackedDevice) => void;
   onPoll: (d: TrackedDevice) => void;
   onAdd: () => void;
@@ -643,14 +678,9 @@ function TrackerList({
                     )}
                     {paceLine(u, dev, now) && <span className="block text-xs text-muted">{paceLine(u, dev, now)}</span>}
                     {linkText(dev) && <span className="block text-xs text-muted" title={routeText(dev) ?? undefined}>{linkText(dev)}</span>}
-                    {sensorText(u, dev) && <span className="block text-xs text-muted">{sensorText(u, dev)}</span>}
-                    <span className="block text-xs text-muted">
+                    <TelemetryChips dev={dev} u={u} />
+                    <span className="mt-1 block text-xs text-muted">
                       {dev.source === "meshtastic" ? `Meshtastic ${dev.node_id} · broadcasts about every ${intervalLabel(dev.interval_s)}` : `Every ${intervalLabel(dev.interval_s)}`}
-                      {batteryText(dev) && (
-                        <span className={cx(dev.battery_low && "font-semibold text-danger")}>
-                          {` · battery ${batteryText(dev)}${dev.battery_pct !== null && dev.battery_v !== null ? ` (${dev.battery_v.toFixed(2)} V)` : ""}`}
-                        </span>
-                      )}
                       {dev.is_simulated && " · simulated"}
                     </span>
                   </span>
@@ -662,16 +692,19 @@ function TrackerList({
               {(dev.status === "no_answer" || dev.status === "no_position" || dev.status === "error") && dev.status_detail && (
                 <p className="mt-1.5 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs text-muted">{dev.status_detail}</p>
               )}
-              <div className="mt-2 flex gap-2">
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
                 <Button
-                  className="min-h-9 flex-1 px-3"
+                  className="min-h-9 gap-1.5 whitespace-nowrap px-2"
                   onClick={() => onPoll(dev)}
                   disabled={(dev.source === "meshcore" && !radioConnected) || dev.asking || !dev.current_radio}
                   title={dev.source === "meshtastic" ? "Ask for its position now (a Meshtastic tracker answers at most every 3 minutes)" : "Ask for its position now"}
                 >
                   <RefreshCw className={cx("size-4", dev.asking && "animate-spin")} aria-hidden /> Ask now
                 </Button>
-                <Button className="min-h-9 px-3" onClick={() => onEdit(dev)}>
+                <Button className="min-h-9 gap-1.5 whitespace-nowrap px-2" onClick={() => onTelemetry(dev)} title="Battery, sensors, signal and their history">
+                  <Activity className="size-4" aria-hidden /> Telemetry
+                </Button>
+                <Button className="min-h-9 gap-1.5 whitespace-nowrap px-2" onClick={() => onEdit(dev)}>
                   <Pencil className="size-4" aria-hidden /> Edit
                 </Button>
               </div>

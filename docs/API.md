@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.3.0**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.3.1**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -645,7 +645,9 @@ Also on each device (1.0.20):
 | `progress` | `{"course_id", "course_name", "color", "auto", "total_m", "along_m", "pct", "off_course_m", "finished", "at"}`, or `null` (no course). `along_m` and `pct` are `null` while it's off course; `off_course_m` is then how far from the line (`null`: over about 120 m). `auto`: the course was picked from its position. |
 | `pace` | `{"speed_mps", "basis", "moving", "remaining_m", "eta_at"}` over the last ten minutes, or `null` (too few positions). `basis` is `course` (along the course) or `straight` (between fixes, with no course). `eta_at` is to the end of the course. |
 | `link` | How its latest answer reached the radio: `{"at", "route", "hops": [{"hash", "name"}], "snr", "rssi"}`. `route` is `flood` or `direct` (its stored route); `hops` start at the tracker's end, and an empty list means heard directly. `name` is the contact whose key starts with `hash`, when only one does. `null` when the radio didn't log the packet. |
-| `sensors` | Its latest environment readings, when it shares them: `{"at", "temp_c", "pressure_hpa", "baro_alt_m"}`, or `null`. |
+| `sensors` | Its latest environment readings, when it shares them: `{"at", "temp_c", "pressure_hpa", "baro_alt_m", "humidity", "lux"}`, or `null`. |
+| `telemetry` | Its latest telemetry (1.3.1), or `null`: `device` (`{"at", "battery_pct", "voltage", "channel_util", "air_util_tx", "uptime_s"}`; `at` in epoch seconds; Meshtastic reports all of these, MeshCore only `voltage`) and `environment` (`{"at", "temp_c", "humidity", "pressure_hpa", "lux", "baro_alt_m"}`). |
+| `external_power` | A Meshtastic tracker reports running on external power (1.3.1). |
 
 Meshtastic trackers (1.1.0): `source` is `meshcore` (a contact asked on a schedule) or `meshtastic`
 (a Meshtastic node whose position broadcasts are recorded). A Meshtastic tracker has `node_id`
@@ -678,6 +680,7 @@ Any of `label` (`null` or empty clears it), `color` (`#rrggbb`), `interval_s`, `
 | `DELETE /api/tracking/devices/{id}/positions` | Delete its position history, keeping it tracked (`204`). |
 | `DELETE /api/tracking/devices/{id}` | Stop tracking it and delete its positions; the contact stays (`204`). |
 | `GET /api/tracking/devices/{id}/track.gpx?hours=48` | Its positions over the last `hours` (1–720) as a GPX track. |
+| `GET /api/tracking/devices/{id}/telemetry?hours=24` | Its battery, environment readings and signal over the last `hours` (1–720), from its positions, oldest first and thinned to at most 300 points: `{"hours", "points": [{"at", "battery_v", "battery_pct", "temp_c", "humidity", "pressure_hpa", "lux", "snr", "rssi", "hops"}]}` (1.3.1). |
 
 #### Meshtastic nodes
 
@@ -880,7 +883,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

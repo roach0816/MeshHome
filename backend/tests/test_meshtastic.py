@@ -399,6 +399,25 @@ async def test_meshtastic_trackers(client):
     assert d["link"]["hops"] in ([], [{"hash": f"{sim.CAR_NUM & 0xFF:02x}", "name": "Car Router"}])
     assert 0 < d["battery_pct"] <= 100 and d["battery_v"] > 3.5
     assert d["sensors"]["temp_c"] and d["sensors"]["pressure_hpa"]
+
+    # Its telemetry: the latest readings with their times, and the history behind the charts.
+    async def full_telemetry():
+        data = (await client.get("/api/tracking")).json()
+        t = next(x for x in data["devices"] if x["id"] == dev["id"])["telemetry"]
+        return (
+            t if t and t.get("device", {}).get("uptime_s") and t.get("environment", {}).get("lux") else None
+        )
+
+    tel = await wait_for(full_telemetry, timeout=15)
+    assert 0 < tel["device"]["battery_pct"] <= 100 and tel["device"]["voltage"] > 3.5
+    assert tel["device"]["channel_util"] and tel["device"]["air_util_tx"] and tel["device"]["at"]
+    env = tel["environment"]
+    assert env["temp_c"] and env["humidity"] and env["pressure_hpa"] and env["lux"] and env["at"]
+    hist = (await client.get(f"/api/tracking/devices/{dev['id']}/telemetry?hours=6")).json()
+    assert hist["hours"] == 6 and hist["points"]
+    assert any(p["battery_v"] and p["battery_pct"] for p in hist["points"])
+    assert any(p["temp_c"] and p["humidity"] for p in hist["points"])
+    assert [p["at"] for p in hist["points"]] == sorted(p["at"] for p in hist["points"])
     # On the default public channel positions come blurred (as Meshtastic sends them).
     assert d["last_position"]["lat"] == round(d["last_position"]["lat"], 2)
 

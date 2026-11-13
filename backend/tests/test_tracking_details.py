@@ -111,9 +111,16 @@ def test_parse_sensors():
             {"channel": 1, "type": "altitude", "value": 512.3},
             {"channel": 1, "type": "voltage", "value": 4.1},
             {"channel": 1, "type": "humidity", "value": 40},
+            {"channel": 1, "type": "luminosity", "value": 1200},
         ]
     }
-    assert tracking.parse_sensors(reply) == {"temp_c": 24.53, "pressure_hpa": 955.4, "baro_alt_m": 512.3}
+    assert tracking.parse_sensors(reply) == {
+        "temp_c": 24.53,
+        "pressure_hpa": 955.4,
+        "baro_alt_m": 512.3,
+        "humidity": 40.0,
+        "lux": 1200.0,
+    }
     assert tracking.parse_sensors({"lpp": [{"type": "temperature", "value": True}]}) == {}
     assert tracking.parse_sensors(None) == {}
 

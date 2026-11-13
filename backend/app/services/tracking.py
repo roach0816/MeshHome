@@ -75,10 +75,18 @@ def parse_telemetry(result: Any) -> tuple[dict[str, float | None] | None, float 
 
 def parse_sensors(result: Any) -> dict[str, float]:
     """Readings from its environment sensors, when it shares them (MeshCore app → Telemetry →
-    Environment): temperature (°C), barometric pressure (hPa) and the altitude worked out from
-    it (m). The node's own sensors are on channel 1; other channels are preferred less."""
+    Environment): temperature (°C), barometric pressure (hPa), the altitude worked out from it
+    (m), relative humidity (%) and light (lux). The node's own sensors are on channel 1; other
+    channels are preferred less."""
     lpp = result.get("lpp") if isinstance(result, dict) else None
-    names = {"temperature": "temp_c", "barometer": "pressure_hpa", "altitude": "baro_alt_m"}
+    names = {
+        "temperature": "temp_c",
+        "barometer": "pressure_hpa",
+        "altitude": "baro_alt_m",
+        "humidity": "humidity",
+        "luminosity": "lux",
+        "illuminance": "lux",
+    }
     out: dict[str, float] = {}
     own: set[str] = set()
     for e in lpp if isinstance(lpp, list) else []:
@@ -348,11 +356,19 @@ class Tracking:
             d.last_poll_at = now
             if outcome == "reply":
                 fix, battery = parse_telemetry(data)
+                sensors = parse_sensors(data)
                 d.last_reply_at = now
                 d.failures = 0
                 if battery is not None:
                     d.battery_v = battery
                     d.battery_max_v = max(battery, d.battery_max_v or 0.0)
+                # Its latest telemetry (the tracker's Telemetry view), even without a position.
+                tel = dict(d.telemetry or {})
+                if battery is not None:
+                    tel["device"] = {"at": now.timestamp(), "voltage": battery}
+                if sensors:
+                    tel["environment"] = {"at": now.timestamp(), **sensors}
+                d.telemetry = tel or None
                 if fix is not None:
                     d.status, d.status_detail = "ok", None
                     s.add(
@@ -362,7 +378,7 @@ class Tracking:
                             source="telemetry",
                             battery_v=battery,
                             **fix,
-                            **parse_sensors(data),
+                            **sensors,
                             **(link or {}),
                         )
                     )

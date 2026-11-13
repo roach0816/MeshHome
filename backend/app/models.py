@@ -373,6 +373,10 @@ class TrackedDevice(Base):
     advert_seen_at: Mapped[datetime | None]
     # Meshtastic: the battery level the tracker reports (0-100; 101: on external power).
     battery_reported_pct: Mapped[int | None] = mapped_column(Integer)
+    # Its latest telemetry, for the tracker's Telemetry view (api/tracking.py): "device"
+    # (battery_pct, voltage, channel_util, air_util_tx, uptime_s) and "environment" (temp_c,
+    # humidity, pressure_hpa, lux, baro_alt_m), each with "at" (epoch seconds).
+    telemetry: Mapped[dict[str, Any] | None]
 
 
 class TrackPosition(Base):
@@ -399,6 +403,9 @@ class TrackPosition(Base):
     temp_c: Mapped[float | None] = mapped_column(Float)
     pressure_hpa: Mapped[float | None] = mapped_column(Float)
     baro_alt_m: Mapped[float | None] = mapped_column(Float)
+    humidity: Mapped[float | None] = mapped_column(Float)  # relative, %
+    lux: Mapped[float | None] = mapped_column(Float)  # light level
+    battery_pct: Mapped[int | None] = mapped_column(Integer)  # as the tracker reports it (Meshtastic)
 
 
 class MeshNode(Base):

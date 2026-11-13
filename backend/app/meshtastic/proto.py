@@ -264,6 +264,7 @@ ENVIRONMENT_METRICS: Schema = {
     2: ("relative_humidity", "float"),
     3: ("barometric_pressure", "float"),
     5: ("voltage", "float"),
+    9: ("lux", "float"),
 }
 
 TELEMETRY: Schema = {

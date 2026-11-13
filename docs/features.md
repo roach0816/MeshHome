@@ -272,7 +272,8 @@ navigation.
   Turn it off at an event on your own mesh to keep asking at the tracker's interval.
 - **The map:** each shown tracker's position with how long ago it was taken, its recent trail
   (Settings → Tracking → *Trail on the map*), your base, and the courses. A card per tracker along
-  the bottom shows its name, how fresh its position is and its battery; tap it to centre the map.
+  the bottom shows its name, how fresh its position is and its battery; tap it to centre the map, or
+  tap **Telemetry** on it for its readings (below).
   From the list: show or hide each tracker, ask for a position now, give it a label (who's carrying
   it, such as "Leg 7 – Sam"), change its interval or colour, pause it, export its track as GPX, or
   clear its history. Positions are kept for 30 days.
@@ -299,9 +300,20 @@ navigation.
   passed; one on the stored route doesn't, so the stored route is shown. Useful for finding where
   coverage drops along the course.
 - **Sensors:** when the tracker shares its environment readings (MeshCore app → **Telemetry →
-  Environment**), its temperature, barometric pressure and the altitude worked out from it are shown
-  too. A tracker's barometer temperature is mostly the heat of whoever carries it. Trackers whose
-  firmware doesn't report a barometer simply don't show these.
+  Environment**), its temperature, humidity, light level, barometric pressure and the altitude worked
+  out from it are shown too. A tracker's barometer temperature is mostly the heat of whoever carries
+  it. Trackers without a sensor simply don't show its reading.
+- **Telemetry:** each tracker's card shows its battery, temperature, humidity and signal at a glance.
+  Its **Telemetry** button (in the list, on its card along the bottom of the map, and in its pin's
+  popup) opens everything it reports:
+  - **Battery:** charge and voltage, or "Plugged in".
+  - **Sensors:** temperature, humidity, pressure, light and altitude.
+  - **Signal:** SNR, RSSI and the route its last position took.
+  - **Device** (Meshtastic): uptime, how busy the channel is, and its own airtime.
+  - **History:** battery and temperature charts over 6 hours, 24 hours or 3 days.
+
+  Each group says how long ago it was reported, and **Something missing?** says what to turn on in
+  the tracker's app.
 - **Setting up a tracker:** in the MeshCore app on the tracker, turn GPS on and set **Telemetry →
   Location** to allow this node (flag it in the tracker's contacts) or everyone. The tracker also
   needs your node in its contacts, to read the request. The tracker's status says when it answered
