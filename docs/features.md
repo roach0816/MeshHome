@@ -147,8 +147,8 @@ it. Right-click or long-press a contact for:
   days; **Heard within** shows more or fewer, and repeaters not heard for over a week are dimmed.
   **Undo** and **Clear** start over; **Use this route** sets it. A trace tests the repeaters, not
   the contact itself.
-- **Favorite:** sets the radio's favourite flag, so the radio won't overwrite the contact when its
-  contact list is full.
+- **Favorite:** sets the radio's favourite flag, so the radio never replaces the contact when its
+  contact list is full (see **Make room when the contact list is full** in the node settings below).
 - **Block:** an app-side block. MeshCore radios can't block traffic, so the blocked contact's DMs, and
   channel messages under their name, are archived but hidden, never unread, and silent. Unblocking
   restores them.
@@ -192,6 +192,11 @@ and when. Passwords and keys are never stored or logged.
   key, a generated random key (shown once), or entered by hand. Private keys are never displayed
   afterwards.
 - **Contacts and routing:** auto-add contacts, extra ACKs, path hash size, and default flood scope.
+  **Make room when the contact list is full** (firmware that has it) decides what happens once the
+  radio's contact list (for example 350 contacts) is full: on, a new contact replaces the one the
+  radio heard from longest ago; off, new contacts are left out until you remove one. Favourites are
+  never replaced either way, and MeshHome keeps a replaced contact's messages (it shows as
+  *Removed from radio*). A MeshCore radio can only read direct messages from contacts on its list.
 - **Other:** telemetry permissions, firmware variables, advanced timing, adverts, clock sync, and
   reboot.
 

@@ -6158,6 +6158,17 @@
               }
             ],
             "title": "Default Flood Scope"
+          },
+          "overwrite_oldest": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overwrite Oldest"
           }
         },
         "type": "object",

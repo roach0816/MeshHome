@@ -133,6 +133,7 @@ def _initial_state() -> dict:
         "share_location": True,
         "radio": {"freq_mhz": 910.525, "bw_khz": 62.5, "sf": 7, "cr": 5, "tx_power_dbm": 22, "repeat": False},
         "auto_add_contacts": True,
+        "overwrite_oldest": False,
         "multi_acks": 0,
         "path_hash_mode": 0,
         "default_flood_scope": "",
@@ -321,6 +322,8 @@ class SimulatedRadio(RadioAdapter):
                 "multi_acks": st["multi_acks"],
                 "path_hash_mode": st["path_hash_mode"],
                 "default_flood_scope": st["default_flood_scope"],
+                "overwrite_oldest": st["overwrite_oldest"],
+                "max_contacts": 350,
             },
             "telemetry": dict(st["telemetry"]),
             "tuning": dict(st["tuning"]),
@@ -354,7 +357,7 @@ class SimulatedRadio(RadioAdapter):
         elif op == "behavior":
             st["auto_add_contacts"] = params["auto_add_contacts"]
             st["multi_acks"] = params["multi_acks"]
-            for k in ("path_hash_mode", "default_flood_scope"):
+            for k in ("path_hash_mode", "default_flood_scope", "overwrite_oldest"):
                 if params.get(k) is not None:
                     st[k] = params[k]
         elif op == "telemetry":

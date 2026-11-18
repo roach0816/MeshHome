@@ -71,3 +71,48 @@ async def test_contact_add_builds_a_record_the_library_can_send():
     assert data[33] == 2 and data[34] == 0  # type, flags
     assert data[35] == 255  # no path yet: flood
     assert data[100:132].rstrip(b"\0") == b"Trail Buddy"
+
+
+async def test_overwrite_oldest_keeps_the_other_auto_add_bits():
+    """The setting is bit 0 of the auto-add config; bits 1-4 (contact types) are left alone, and
+    only the config byte is sent, so the firmware keeps its max-hops value too."""
+    from meshcore.commands import CommandHandler
+
+    sent: list[bytes] = []
+    config = {"value": 0b0001_0100}  # repeaters and sensors auto-added in manual mode
+
+    class Commands:
+        async def send(self, data, expected):
+            sent.append(data)
+            if data[0] == 0x3B:
+                return Event(EventType.AUTOADD_CONFIG, {"config": config["value"], "max_hops": 3})
+            if data[0] == 0x3A:
+                config["value"] = data[1]
+            return Event(EventType.OK, {})
+
+        async def send_appstart(self):
+            return Event(EventType.SELF_INFO, {"name": "Home", "manual_add_contacts": True})
+
+        async def set_other_params_from_infos(self, infos):
+            return Event(EventType.OK, {})
+
+        get_autoadd_config = CommandHandler.get_autoadd_config
+        set_autoadd_config = CommandHandler.set_autoadd_config
+
+    class MC:
+        is_connected = True
+        commands = Commands()
+
+    radio = MeshCoreTcpRadio("radio.invalid", 5000)
+    radio._mc = MC()
+    params = {"auto_add_contacts": False, "multi_acks": 0, "overwrite_oldest": True}
+    await radio.configure("behavior", params)
+    assert config["value"] == 0b0001_0101
+    assert sent[-1] == bytes([0x3A, 0b0001_0101])  # no max-hops byte
+
+    await radio.configure("behavior", {**params, "overwrite_oldest": False})
+    assert config["value"] == 0b0001_0100
+
+    sent.clear()
+    await radio.configure("behavior", {**params, "overwrite_oldest": None})  # unchanged
+    assert not any(d[0] in (0x3A, 0x3B) for d in sent)

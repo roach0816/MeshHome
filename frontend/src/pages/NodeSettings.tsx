@@ -750,8 +750,10 @@ function BehaviorSection({ c }: { c: NodeConfig }) {
   const [multi, setMulti] = useState(b.multi_acks > 0);
   const [hash, setHash] = useState(b.path_hash_mode ?? 0);
   const [scope, setScope] = useState(b.default_flood_scope ?? "");
+  const [overwrite, setOverwrite] = useState(b.overwrite_oldest ?? false);
   useEffect(() => {
     setAutoAdd(b.auto_add_contacts);
+    setOverwrite(b.overwrite_oldest ?? false);
     setMulti(b.multi_acks > 0);
     setHash(b.path_hash_mode ?? 0);
     setScope(b.default_flood_scope ?? "");
@@ -761,7 +763,9 @@ function BehaviorSection({ c }: { c: NodeConfig }) {
     autoAdd !== b.auto_add_contacts ||
     multi !== b.multi_acks > 0 ||
     (b.path_hash_mode !== null && hash !== b.path_hash_mode) ||
-    (b.default_flood_scope !== null && scope.trim().replace(/^#/, "") !== b.default_flood_scope);
+    (b.default_flood_scope !== null && scope.trim().replace(/^#/, "") !== b.default_flood_scope) ||
+    (b.overwrite_oldest !== null && overwrite !== b.overwrite_oldest);
+  const holds = b.max_contacts ? `The radio holds ${b.max_contacts} contacts. ` : "";
   return (
     <Section title="Contacts & routing">
       <Toggle
@@ -771,6 +775,20 @@ function BehaviorSection({ c }: { c: NodeConfig }) {
         label="Automatically add contacts from adverts"
         hint="Off keeps the radio's small contact list tidy: new nodes wait for you."
       />
+      {b.overwrite_oldest !== null && (
+        <Toggle
+          id="bh-overwrite"
+          checked={overwrite}
+          onChange={setOverwrite}
+          label="Make room when the contact list is full"
+          hint={
+            holds +
+            (overwrite
+              ? "When it's full, a new contact replaces the one heard from longest ago. Favorites are never replaced, and MeshHome keeps the replaced contact's messages."
+              : "When it's full, new contacts aren't added until you remove one. Nothing is replaced.")
+          }
+        />
+      )}
       <Toggle
         id="bh-multiack"
         checked={multi}
@@ -808,6 +826,7 @@ function BehaviorSection({ c }: { c: NodeConfig }) {
             multi_acks: multi ? 1 : 0,
             path_hash_mode: b.path_hash_mode === null ? null : hash,
             default_flood_scope: b.default_flood_scope === null ? null : scope.trim(),
+            overwrite_oldest: b.overwrite_oldest === null ? null : overwrite,
           })
         }
       />

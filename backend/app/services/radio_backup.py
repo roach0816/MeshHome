@@ -193,7 +193,8 @@ async def _settings(s: Snapshot) -> list[str]:
         if "behavior" not in cfg:
             return None
         b, here = dict(cfg["behavior"]), now.get("behavior") or {}
-        for k in ("path_hash_mode", "default_flood_scope"):
+        b.pop("max_contacts", None)  # read-only
+        for k in ("path_hash_mode", "default_flood_scope", "overwrite_oldest"):
             if here.get(k) is None:
                 b[k] = None  # this firmware doesn't have it
         return BehaviorIn(**b).model_dump()

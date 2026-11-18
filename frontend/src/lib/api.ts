@@ -438,6 +438,10 @@ export interface NodeConfig {
     multi_acks: number;
     path_hash_mode: number | null;
     default_flood_scope: string | null;
+    /** When the contact list is full: replace the contact heard from longest ago. Null: firmware without it. */
+    overwrite_oldest: boolean | null;
+    /** How many contacts the radio holds. */
+    max_contacts: number | null;
   };
   telemetry: { base: TelemetryMode; location: TelemetryMode; environment: TelemetryMode };
   tuning: { rx_delay: number; airtime_factor: number } | null;

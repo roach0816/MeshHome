@@ -10,7 +10,7 @@ further context.
 - **Format:** JSON request and response bodies (`Content-Type: application/json`).
 - **Live reference:** the server also publishes an OpenAPI 3 description at `/api/openapi.json`
   and an interactive explorer at `/api/docs` (use its **Authorize** button with your key).
-- **Version:** this document matches MeshHome **v1.3.1**. `GET /api/status` reports the
+- **Version:** this document matches MeshHome **v1.3.2**. `GET /api/status` reports the
   running version in `app.version`.
 
 ## Contents
@@ -718,7 +718,7 @@ the map settings.
 | `GET /api/settings/bot` | The command bot: `{"enabled": false, "allow": "favorites" \| "everyone", "env": true}`. When enabled, the node answers DMs starting with `/`: `/info`, `/ping`, `/help`, `/env` (when `env` is true and an environment sensor is working on a native install; see `GET /api/sensors`), and the commands of installed bot apps. Its replies are ordinary outgoing messages with `meta.bot` set to the command. |
 | `GET /api/settings/radio` | Radio connection settings: `tech` (`meshcore` or `meshtastic`; with the radio HAT, what it runs), `mode` (`tcp`, `hat`, `simulated` or `none`), `host`, `port`, `paused`, `sim_interval_seconds`. |
 | `GET /api/node/meshtastic` | The Meshtastic radio's settings (`409` unless one is connected): `node` (`num`, `node_id`, `long_name`, `short_name`, `firmware`, `role`, `lat`, `lon`), `lora` (`region`, `preset`, `hop_limit`, `tx_power_dbm`, `tx_enabled`), `channels` (`index`, `name`, `display_name`, `primary`, `key`: `default`/`private`/`none`, `position_precision`; never keys), and the `regions`, `presets` and `roles` to choose from. |
-| `GET /api/radio/config` | The connected node's configuration: identity, LoRa parameters, channels (names and key *types*, never keys), behaviour and telemetry. `409` if the radio is offline. |
+| `GET /api/radio/config` | The connected node's configuration: identity, LoRa parameters, channels (names and key *types*, never keys), behaviour and telemetry. `409` if the radio is offline. Behaviour includes `overwrite_oldest` (when the contact list is full, replace the non-favourite contact heard from longest ago; `null` on firmware without the setting) and the read-only `max_contacts` (1.3.2). |
 | `GET /api/radio/channels/hashtag-key?name=%23hikers` | The key of a public `#hashtag` channel, derived from its name: `{"name", "hex", "base64"}`. |
 | `GET /api/system/update` | Installed version and whether an update is available. |
 | `GET /api/system/health` | What's working, for monitoring: `overall` (`ok`, `warn` or `bad`), `summary`, and `items`, each with `id` (`radio`, `radio_hat`, `mesh`, `sending`, `collection`, `trackers`, `database`, `services`, `notifications`, `https`, `updates`, `system`; only those that apply), `title`, `status` (`ok`, `info`, `warn`, `bad` or `off`), `summary`, `detail` (what it means), `fix` (steps), `facts` (`label`/`value`), `link` (the web interface's page) and `logs` (its component in the log). `problems` counts warnings and errors in the last 24 hours per component. |
@@ -883,7 +883,7 @@ it supports:
 ```json
 {
   "product": "meshhome",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "api_version": 1,
   "install_kind": "native",
   "needs_setup": false,

@@ -36,6 +36,9 @@ COMMAND_TIMEOUT = 8.0
 CONNECT_TIMEOUT = 10.0
 MAX_CHANNEL_SLOTS_FALLBACK = 8  # only used if the device does not report max_channels
 NEIGHBOUR_PREFIX_BYTES = 4
+# Auto-add config bit 0: when the contact list is full, replace the non-favourite contact heard
+# from longest ago (otherwise new contacts are left out).
+AUTOADD_OVERWRITE_OLDEST = 0x01
 
 
 def _payload(event: Any) -> dict[str, Any]:
@@ -364,6 +367,15 @@ class MeshCoreTcpRadio(RadioAdapter):
         except Exception:  # noqa: BLE001 - older firmware/library combinations
             flood_scope = None
 
+        # What the radio does when its contact list is full (firmware with auto-add settings only).
+        overwrite_oldest = None
+        try:
+            ares = await mc.commands.get_autoadd_config()
+            if ares is not None and ares.type == EventType.AUTOADD_CONFIG:
+                overwrite_oldest = bool(int(_payload(ares).get("config") or 0) & AUTOADD_OVERWRITE_OLDEST)
+        except Exception:  # noqa: BLE001 - older firmware/library combinations
+            overwrite_oldest = None
+
         channels = []
         max_channels = int(di.get("max_channels") or MAX_CHANNEL_SLOTS_FALLBACK)
         for idx in range(max_channels):
@@ -405,6 +417,8 @@ class MeshCoreTcpRadio(RadioAdapter):
                 "multi_acks": int(si.get("multi_acks") or 0),
                 "path_hash_mode": di.get("path_hash_mode") if fw_ver >= 10 else None,
                 "default_flood_scope": flood_scope,
+                "overwrite_oldest": overwrite_oldest,
+                "max_contacts": int(di.get("max_contacts") or 0) or None,  # read-only
             },
             "telemetry": {
                 "base": si.get("telemetry_mode_base", 0),
@@ -465,6 +479,15 @@ class MeshCoreTcpRadio(RadioAdapter):
                 await self._ok(
                     c.set_default_flood_scope(params["default_flood_scope"] or None), "setting flood scope"
                 )
+            if params.get("overwrite_oldest") is not None:
+                # One bit of a byte whose other bits choose which contact types are auto-added
+                # in manual mode: keep those as they are.
+                ares = await self._ok(c.get_autoadd_config(), "reading the contact list settings")
+                was = int(_payload(ares).get("config") or 0)
+                bit = AUTOADD_OVERWRITE_OLDEST
+                now = (was | bit) if params["overwrite_oldest"] else (was & ~bit)
+                if now != was:
+                    await self._ok(c.set_autoadd_config(now), "setting what happens when contacts are full")
         elif op == "telemetry":
             await self._set_other(
                 telemetry_mode_base=params["base"],

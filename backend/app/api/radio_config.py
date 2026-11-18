@@ -93,6 +93,9 @@ class BehaviorIn(BaseModel):
     multi_acks: int = Field(ge=0, le=1)
     path_hash_mode: int | None = Field(default=None, ge=0, le=2)
     default_flood_scope: str | None = Field(default=None, max_length=31)
+    # When the contact list is full: True replaces the non-favourite contact heard from longest
+    # ago, False leaves new contacts out. None leaves it unchanged (and firmware without it).
+    overwrite_oldest: bool | None = None
 
     @field_validator("default_flood_scope")
     @classmethod
@@ -243,6 +246,9 @@ async def put_radio(
 async def put_behavior(
     body: BehaviorIn, ctx: AuthContext = Depends(require_session), db: AsyncSession = Depends(get_db)
 ):
+    if body.overwrite_oldest is not None:
+        if (await _config()).get("behavior", {}).get("overwrite_oldest") is None:
+            body.overwrite_oldest = None  # firmware without the setting
     await _apply(db, "behavior", body.model_dump(), body.model_dump())
     return await _config()
 

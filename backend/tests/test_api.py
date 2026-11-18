@@ -367,9 +367,17 @@ async def test_node_configuration_on_simulated_radio(client):
                 "multi_acks": 1,
                 "path_hash_mode": 1,
                 "default_flood_scope": "#local",
+                "overwrite_oldest": True,
             },
         )
-    ).json()["behavior"]["default_flood_scope"] == "local"
+    ).json()["behavior"] == {
+        "auto_add_contacts": False,
+        "multi_acks": 1,
+        "path_hash_mode": 1,
+        "default_flood_scope": "local",
+        "overwrite_oldest": True,
+        "max_contacts": 350,
+    }
     assert (
         await client.put(
             "/api/radio/config/tuning", headers=csrf(client), json={"rx_delay": 25, "airtime_factor": 1}
