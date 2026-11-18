@@ -116,3 +116,54 @@ async def test_overwrite_oldest_keeps_the_other_auto_add_bits():
     sent.clear()
     await radio.configure("behavior", {**params, "overwrite_oldest": None})  # unchanged
     assert not any(d[0] in (0x3A, 0x3B) for d in sent)
+
+
+async def test_default_flood_scope_is_set_and_cleared_through_the_library():
+    """Saving Contacts & routing with no scope clears it ("" to the library, which fails on None)."""
+    from hashlib import sha256
+
+    from meshcore.commands import CommandHandler
+
+    from app.radio.base import RadioError
+
+    sent: list[bytes] = []
+
+    class Commands:
+        async def send(self, data, expected):
+            sent.append(bytes(data))
+            return Event(EventType.OK, {})
+
+        async def send_appstart(self):
+            return Event(EventType.SELF_INFO, {"name": "Home"})
+
+        async def set_other_params_from_infos(self, infos):
+            return Event(EventType.OK, {})
+
+        set_default_flood_scope = CommandHandler.set_default_flood_scope
+
+    class MC:
+        is_connected = True
+        commands = Commands()
+
+    radio = MeshCoreTcpRadio("radio.invalid", 5000)
+    radio._mc = MC()
+    params = {"auto_add_contacts": True, "multi_acks": 0, "default_flood_scope": ""}
+    await radio.configure("behavior", params)
+    assert sent[-1][1:] == bytes(31 + 16)  # no name, no key
+    await radio.configure("behavior", {**params, "default_flood_scope": "*"})
+    assert sent[-1][1:] == bytes(31 + 16)
+
+    await radio.configure("behavior", {**params, "default_flood_scope": "local"})
+    assert sent[-1][1:32] == b"#local".ljust(31, b"\0")
+    assert sent[-1][32:] == sha256(b"#local").digest()[:16]
+
+    # A fault inside the library is reported as a radio error, with what was being done.
+    async def broken(_scope):
+        raise TypeError("boom")
+
+    radio._mc.commands.set_default_flood_scope = broken
+    try:
+        await radio.configure("behavior", params)
+        raise AssertionError("expected RadioError")
+    except RadioError as exc:
+        assert "setting flood scope" in str(exc) and "TypeError" in str(exc)

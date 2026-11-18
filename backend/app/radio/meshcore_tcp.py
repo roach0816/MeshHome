@@ -323,7 +323,15 @@ class MeshCoreTcpRadio(RadioAdapter):
     # hardware: every call checks for an error event and reports it rather than assuming success.
 
     async def _ok(self, coro, what: str):
-        res = await coro
+        try:
+            res = await coro
+        except (RadioError, asyncio.CancelledError, TimeoutError):
+            raise
+        except Exception as exc:  # noqa: BLE001 - a fault in the MeshCore library: say what failed
+            log.exception("%s failed in the MeshCore library", what)
+            raise RadioError(
+                f"{what} failed in MeshHome ({type(exc).__name__}); see Settings → Health & logs"
+            ) from exc
         if res is None or res.is_error():
             raise RadioError(f"{what} rejected by radio ({_describe(res)})")
         return res
@@ -476,9 +484,11 @@ class MeshCoreTcpRadio(RadioAdapter):
             if params.get("path_hash_mode") is not None:
                 await self._ok(c.set_path_hash_mode(params["path_hash_mode"]), "setting path hash mode")
             if params.get("default_flood_scope") is not None:
-                await self._ok(
-                    c.set_default_flood_scope(params["default_flood_scope"] or None), "setting flood scope"
-                )
+                # "" clears it. The library pads the frame by the length of what it was given, so
+                # None fails and its other "no scope" words ("0", "*", "None") make a short frame.
+                scope = params["default_flood_scope"]
+                scope = "" if scope in ("0", "*", "None") else scope
+                await self._ok(c.set_default_flood_scope(scope), "setting flood scope")
             if params.get("overwrite_oldest") is not None:
                 # One bit of a byte whose other bits choose which contact types are auto-added
                 # in manual mode: keep those as they are.
